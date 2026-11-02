@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LaTeX Web Editor</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+    <div class="editor-container">
+        <!-- Left Sidebar: File Browser -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2>Files</h2>
+                <button id="browseBtn" class="btn-icon" title="Open a file from the workspace folder">📂</button>
+                <button id="newFileBtn" class="btn-icon" title="New browser-storage file">+</button>
+                <button id="uploadFileBtn" class="btn-icon" title="Import a file from your computer">↑</button>
+            </div>
+            <div id="fileTree" class="file-tree"></div>
+            <input type="file" id="fileInput" style="display: none;" accept=".tex,.bib,.sty,.cls,.txt">
+        </div>
+
+        <div id="splitSidebar" class="splitter" role="separator" aria-orientation="vertical" aria-label="Resize file list" tabindex="0" title="Drag to resize (double-click to reset)"></div>
+
+        <!-- Center: Text Editor -->
+        <div class="editor-main">
+            <div class="editor-header">
+                <div id="currentFile" class="current-file">No file selected</div>
+                <select id="engineSelect" class="engine-select" aria-label="TeX engine" title="TeX engine. Auto follows a '% !TEX program = lualatex' comment, or picks LuaLaTeX for Lua / fontspec documents.">
+                    <option value="auto">Engine: Auto</option>
+                    <option value="pdflatex">pdfLaTeX</option>
+                    <option value="lualatex">LuaLaTeX</option>
+                    <option value="xelatex">XeLaTeX</option>
+                </select>
+                <div class="zoom-group" role="group" aria-label="Editor text size">
+                    <button id="editorZoomOut" class="btn-icon" title="Smaller text (Ctrl/Cmd + -)" aria-label="Smaller editor text">A−</button>
+                    <button id="editorZoomReset" class="zoom-value" title="Reset text size (Ctrl/Cmd + 0)">13px</button>
+                    <button id="editorZoomIn" class="btn-icon" title="Larger text (Ctrl/Cmd + =)" aria-label="Larger editor text">A+</button>
+                </div>
+                <button id="saveBtn" class="btn-secondary" disabled>Save</button>
+                <button id="compileBtn" class="btn-primary">Compile PDF</button>
+            </div>
+            <textarea id="editor" class="editor-textarea" placeholder="Select a file to edit or create a new one..."></textarea>
+        </div>
+
+        <div id="splitPreview" class="splitter" role="separator" aria-orientation="vertical" aria-label="Resize preview" tabindex="0" title="Drag to resize (double-click to reset)"></div>
+
+        <!-- Right: Preview Pane -->
+        <div class="preview-pane">
+            <div class="preview-header">
+                <h3>Preview</h3>
+                <div class="zoom-group" role="group" aria-label="Preview zoom">
+                    <button id="pdfZoomOut" class="btn-icon" title="Zoom out" aria-label="Zoom out preview">−</button>
+                    <button id="pdfZoomReset" class="zoom-value" title="Fit page width">100%</button>
+                    <button id="pdfZoomIn" class="btn-icon" title="Zoom in (or Ctrl + scroll)" aria-label="Zoom in preview">+</button>
+                </div>
+                <button id="clearPreviewBtn" class="btn-icon" title="Clear">✕</button>
+            </div>
+            <div id="pdfPreview" class="pdf-preview"></div>
+        </div>
+    </div>
+
+    <div id="splitChat" class="splitter horizontal" role="separator" aria-orientation="horizontal" aria-label="Resize chat" tabindex="0" title="Drag to resize (double-click to reset)"></div>
+
+    <!-- Chat Bar at Bottom -->
+    <div class="chat-container">
+        <div class="assistant-bar">
+            <select id="providerSelect" class="engine-select" aria-label="Model provider" title="Which model answers"></select>
+            <input id="modelInput" class="model-input" list="modelList" type="text" spellcheck="false" autocomplete="off" aria-label="Model" placeholder="model" title="Which model answers. Pick one from the list or type a name; empty uses the provider's default.">
+            <datalist id="modelList"></datalist>
+            <span id="assistantStatus" class="assistant-status" role="status"></span>
+            <span class="spacer"></span>
+            <button id="fixBtn" class="btn-secondary btn-small" disabled title="Ask the model to fix the error from the last compile">Fix error</button>
+            <button id="rewriteBtn" class="btn-secondary btn-small" disabled title="Select text, say in the box below how to change it, then press this">Rewrite selection</button>
+            <button id="explainBtn" class="btn-secondary btn-small" disabled title="Explain the selection, or the compile error, or the document">Explain</button>
+        </div>
+        <div id="chatMessages" class="chat-messages"></div>
+        <div class="chat-input-area">
+            <textarea id="chatInput" class="chat-input" placeholder="Ask about this file, or describe a change... (Enter to send, Shift+Enter for a new line)"></textarea>
+            <button id="sendBtn" class="btn-primary">Send</button>
+            <button id="stopBtn" class="btn-secondary" hidden>Stop</button>
+        </div>
+    </div>
+
+    <!-- File browser: lists the server's workspace folder -->
+    <dialog id="browseDialog" class="browse-dialog" aria-labelledby="browseTitle">
+        <div class="browse-header">
+            <h3 id="browseTitle">Open file</h3>
+            <button id="browseCloseBtn" class="btn-icon" title="Close" aria-label="Close">✕</button>
+        </div>
+        <nav id="browseCrumbs" class="browse-crumbs" aria-label="Current folder"></nav>
+        <div id="browseList" class="browse-list"></div>
+        <div id="browseStatus" class="browse-status" role="status"></div>
+        <div class="browse-footer">
+            <input id="browseNewName" class="browse-input" type="text" placeholder="New file in this folder (e.g. notes.tex)" aria-label="New file name">
+            <button id="browseNewBtn" class="btn-primary">Create</button>
+        </div>
+    </dialog>
+
+    <script src="edits.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

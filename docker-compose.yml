@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  latex-editor:
+    build: .
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - MLX_URL=${MLX_URL:-http://host.docker.internal:8081/v1}
+      - MLX_MODEL=${MLX_MODEL:-default_model}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-}
+      - TRIFLE_TOKEN=${TRIFLE_TOKEN:-}
+      - TRIFLE_URL=${TRIFLE_URL:-http://host.docker.internal:8792}
+      - NODE_ENV=production
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-}
+      - WORKSPACE_DIR=/workspace
+    volumes:
+      - ${WORKSPACE_DIR:-./documents}:/workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
