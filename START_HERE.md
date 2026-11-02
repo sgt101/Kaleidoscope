@@ -1,4 +1,4 @@
-# 🚀 START HERE - LaTeX Web Editor
+# 🚀 START HERE - Kaleidoscope
 
 Welcome! You now have a working prototype of a web-based LaTeX editor with AI assistant integration. This file will get you started in 2 minutes.
 
@@ -36,7 +36,7 @@ npm start
 
 ```
 ┌────────────────────────────────────────┐
-│         LaTeX Web Editor               │
+│         Kaleidoscope               │
 ├─────────┬──────────────┬───────────────┤
 │  Files  │   Editor     │   PDF Preview │
 │  Sidebar│   (editable) │   (compiled)  │
@@ -177,7 +177,7 @@ By default, the chat uses mock responses. To use **real Trifle AI**:
 ## 📁 Project Structure
 
 ```
-latex-editor/
+kaleidoscope/
 ├── index.html          ← Main page (HTML structure)
 ├── styles.css          ← Styling (look, feel, colors)
 ├── app.js              ← Editor logic (client-side)

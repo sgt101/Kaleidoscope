@@ -1,11 +1,11 @@
 # Development Guide
 
-This document is for developers who want to extend or modify the LaTeX Web Editor.
+This document is for developers who want to extend or modify the Kaleidoscope.
 
 ## Project Structure
 
 ```
-latex-editor/
+kaleidoscope/
 ├── public/
 │   ├── index.html          # Main HTML - UI layout
 │   ├── styles.css          # Styling - Dark theme (VS Code inspired)
@@ -355,8 +355,8 @@ cp .env.example .env
 ### Docker Build
 
 ```bash
-docker build -t latex-editor:latest .
-docker run -p 3000:3000 -e TRIFLE_API_KEY=xxx latex-editor:latest
+docker build -t kaleidoscope:latest .
+docker run -p 3000:3000 -e TRIFLE_API_KEY=xxx kaleidoscope:latest
 ```
 
 ### Production Checklist

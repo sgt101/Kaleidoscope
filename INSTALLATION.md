@@ -1,6 +1,6 @@
 # Installation and Setup Guide
 
-Complete installation instructions for the LaTeX Web Editor.
+Complete installation instructions for the Kaleidoscope.
 
 ## System Requirements
 
@@ -133,11 +133,11 @@ pdflatex --version
 **Step 1: Clone or Download**
 ```bash
 # If you have git:
-git clone https://github.com/yourusername/latex-editor.git
-cd latex-editor
+git clone https://github.com/yourusername/kaleidoscope.git
+cd kaleidoscope
 
 # Or download as ZIP and extract
-cd latex-editor
+cd kaleidoscope
 ```
 
 **Step 2: Install Dependencies**
@@ -204,13 +204,13 @@ docker-compose --version
 
 ```bash
 # Navigate to project directory
-cd latex-editor
+cd kaleidoscope
 
 # Build image
-docker build -t latex-editor:latest .
+docker build -t kaleidoscope:latest .
 
 # Run container
-docker run -p 3000:3000 -d --name latex-editor latex-editor:latest
+docker run -p 3000:3000 -d --name kaleidoscope kaleidoscope:latest
 ```
 
 Or use Docker Compose (simpler):
@@ -224,7 +224,7 @@ docker-compose up -d
 docker ps
 
 # View logs
-docker logs latex-editor
+docker logs kaleidoscope
 
 # Open browser
 # http://localhost:3000
@@ -232,8 +232,8 @@ docker logs latex-editor
 
 **Stop Container:**
 ```bash
-docker stop latex-editor
-docker rm latex-editor
+docker stop kaleidoscope
+docker rm kaleidoscope
 
 # Or with Docker Compose:
 docker-compose down
@@ -282,8 +282,8 @@ sudo apt-get install -y nodejs npm
 sudo apt-get install -y texlive-latex-extra
 
 # Clone and run
-git clone https://github.com/yourusername/latex-editor.git
-cd latex-editor
+git clone https://github.com/yourusername/kaleidoscope.git
+cd kaleidoscope
 npm install
 npm start
 ```
@@ -366,7 +366,7 @@ pm2 start server.js -i max  # Cluster mode
 ```yaml
 # docker-compose.yml - add resource limits
 services:
-  latex-editor:
+  kaleidoscope:
     deploy:
       resources:
         limits:
@@ -431,7 +431,7 @@ services:
   ls Dockerfile  # Should exist
   
   # Try building again
-  docker build -t latex-editor:latest .
+  docker build -t kaleidoscope:latest .
   
   # Check Docker daemon running
   docker ps
@@ -501,13 +501,13 @@ After installation, verify:
 
 **Remove Local Installation:**
 ```bash
-rm -rf latex-editor node_modules
+rm -rf kaleidoscope node_modules
 # Or just delete the folder in file explorer
 ```
 
 **Remove Docker Image:**
 ```bash
-docker rmi latex-editor:latest
+docker rmi kaleidoscope:latest
 ```
 
 **Uninstall Node.js:**

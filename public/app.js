@@ -81,6 +81,7 @@ function setupEventListeners() {
     // The in-memory copy follows every keystroke, so switching files or compiling never sees stale text;
     // only the (comparatively expensive) localStorage write is debounced.
     const saveSoon = debounce(saveState, 500);
+    LatexComplete.attach(editor); // before the handler below: an accepted completion is typed text like any other
     editor.addEventListener('input', () => {
         if (state.currentFile) {
             state.files[state.currentFile] = editor.value;

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="-220 -220 440 440" width="440" height="440" role="img" aria-labelledby="t">
+  <title id="t">Kaleidoscope</title>
+  <defs>
+    <clipPath id="wedge">
+      <path d="M0 0 L200 0 A200 200 0 0 1 100 173.205 Z"/>
+    </clipPath>
+    <!-- One sixty-degree wedge; the mark is this wedge reflected and rotated six times. -->
+    <g id="w" clip-path="url(#wedge)" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="1.5" stroke-linejoin="round">
+      <path d="M0 0 L200 0 A200 200 0 0 1 100 173.205 Z" fill="#1B1340" stroke="none"/>
+      <path d="M62 8 L158 22 L122 96 Z" fill="#E6399B"/>
+      <path d="M28 18 L66 52 L18 74 Z" fill="#19C3B1"/>
+      <circle cx="112" cy="58" r="17" fill="#FFD23F"/>
+      <path d="M150 62 L190 8 L178 98 Z" fill="#FF7A2F"/>
+      <path d="M76 112 L118 120 L92 150 Z" fill="#19C3B1"/>
+      <circle cx="44" cy="40" r="7" fill="#38BDF8"/>
+      <circle cx="148" cy="112" r="9" fill="#7A4ECD"/>
+      <path d="M104 150 L134 138 L128 168 Z" fill="#FFD23F"/>
+    </g>
+  </defs>
+  <circle r="200" fill="#1B1340"/>
+  <g>
+    <use xlink:href="#w"/>
+    <use xlink:href="#w" transform="rotate(120)"/>
+    <use xlink:href="#w" transform="rotate(240)"/>
+    <use xlink:href="#w" transform="scale(1,-1)"/>
+    <use xlink:href="#w" transform="rotate(120) scale(1,-1)"/>
+    <use xlink:href="#w" transform="rotate(240) scale(1,-1)"/>
+  </g>
+  <circle r="200" fill="none" stroke="#FFD23F" stroke-width="4"/>
+</svg>

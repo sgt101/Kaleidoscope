@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get the LaTeX Web Editor running in 5 minutes!
+Get the Kaleidoscope running in 5 minutes!
 
 ## Option 1: Local Setup (Recommended for Development)
 
@@ -13,7 +13,7 @@ Get the LaTeX Web Editor running in 5 minutes!
 
 ### Step 2: Install Dependencies
 ```bash
-cd latex-editor
+cd kaleidoscope
 npm install
 ```
 

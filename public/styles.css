@@ -78,10 +78,21 @@ body.resizing.vertical {
     border-bottom: 1px solid #3e3e42;
 }
 
+.sidebar-header .logo {
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    margin-right: 8px;
+}
+
 .sidebar-header h2 {
     font-size: 14px;
     font-weight: 600;
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .btn-icon {
@@ -231,6 +242,61 @@ body.resizing.vertical {
 
 .editor-textarea::selection {
     background-color: #264f78;
+}
+
+/* Completions */
+.completion-popup {
+    position: fixed;
+    z-index: 1000;
+    min-width: 260px;
+    max-width: 440px;
+    background-color: #252526;
+    border: 1px solid #454545;
+    border-radius: 4px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+    font-size: 12px;
+    overflow: hidden;
+}
+
+.completion-popup[hidden] {
+    display: none;
+}
+
+.completion-item {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding: 4px 10px;
+    cursor: pointer;
+}
+
+.completion-item.selected {
+    background-color: #04395e;
+}
+
+.completion-name {
+    font-family: 'Courier New', monospace;
+    color: #d4d4d4;
+    white-space: nowrap;
+}
+
+.completion-name b {
+    color: #4fc1ff;
+}
+
+.completion-desc {
+    margin-left: auto;
+    color: #8a8a8a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.completion-hint {
+    padding: 3px 10px;
+    border-top: 1px solid #3e3e42;
+    color: #6f6f6f;
+    font-size: 11px;
 }
 
 /* Preview Pane */

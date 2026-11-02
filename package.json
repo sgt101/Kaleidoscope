@@ -1,5 +1,5 @@
 {
-  "name": "latex-web-editor",
+  "name": "kaleidoscope",
   "version": "1.0.0",
   "description": "A web-based LaTeX editor with file browser, text editor, PDF preview, and AI assistant",
   "main": "server.js",

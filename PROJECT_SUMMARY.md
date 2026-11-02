@@ -1,4 +1,4 @@
-# LaTeX Web Editor - Project Summary
+# Kaleidoscope - Project Summary
 
 ## 🎯 Project Overview
 

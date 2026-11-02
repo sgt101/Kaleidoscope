@@ -35,9 +35,9 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE="latex-web-editor"
-NAME="latex-web-editor"
-CACHE_VOLUME="latex-web-editor-cache"
+IMAGE="kaleidoscope"
+NAME="kaleidoscope"
+CACHE_VOLUME="kaleidoscope-cache"
 PORT="${PORT:-3000}"
 WORK="${WORKSPACE_DIR:-$HERE/documents}"
 REBUILD=0

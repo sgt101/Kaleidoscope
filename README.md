@@ -1,11 +1,13 @@
-# LaTeX Web Editor
+<p align="center"><img src="public/kaleidoscope.svg" width="140" alt="Kaleidoscope logo"></p>
+
+# Kaleidoscope
 
 A modern, web-based LaTeX editor with a clean three-pane interface and a task-oriented AI assistant that talks to model providers directly (a local MLX server, Claude, any OpenAI-compatible API) and proposes edits you accept or reject.
 
 ## Features
 
 ✅ **File Browser** - Left sidebar for managing LaTeX documents
-✅ **Text Editor** - Plain-text LaTeX editor in the center (no syntax highlighting yet)
+✅ **Text Editor** - Plain-text LaTeX editor in the center (no syntax highlighting yet), with command completion
 ✅ **PDF Preview** - Preview pane on the right, refreshed when you press Compile
 ✅ **LaTeX Compilation** - Compile documents to PDF with error reporting
 ✅ **Assistant** - Fix a compile error, rewrite a selection, explain, or ask; changes arrive as diffs you accept or reject
@@ -13,11 +15,50 @@ A modern, web-based LaTeX editor with a clean three-pane interface and a task-or
 ✅ **File Upload** - Import existing LaTeX documents
 ✅ **Dark Theme** - Professional VS Code-like dark interface
 
+## Quickstart
+
+The easiest way to run Kaleidoscope is in a container: the server, TeX Live (pdfLaTeX, LuaLaTeX, XeLaTeX, BibTeX, Biber) and every document you compile stay inside Docker, and see only one folder of yours.
+
+**You need** Docker (Docker Desktop on macOS). Nothing else: no Node.js and no TeX installation.
+
+```bash
+git clone <this repository> Kaleidoscope   # or use the folder you already have
+cd Kaleidoscope
+./run_contained.sh
+```
+
+Open **http://localhost:3000**. The first run builds the image (TeX Live, a few minutes and about 2 GB); later runs start in seconds. Press Ctrl+C to stop.
+
+1. **Open a file.** The workspace is the `documents/` folder next to the script. Use the folder icon in the file panel to browse it, or create a file with `+`.
+2. **Compile.** Choose an engine (Auto, pdfLaTeX, LuaLaTeX, XeLaTeX) and press **Compile PDF**. Save writes to the workspace folder on your machine.
+3. **Ask the assistant** (the bar under the editor). Choose a provider and a model, then use **Fix error**, **Rewrite selection**, **Explain**, or type a question. Changes arrive as diffs; nothing is edited until you press Accept.
+
+**Common options**
+
+```bash
+./run_contained.sh --work ~/papers     # use another folder as the workspace
+./run_contained.sh --port 8080         # another port
+./run_contained.sh --detach            # run in the background...
+./run_contained.sh --stop              # ...and stop it again
+./run_contained.sh --rebuild           # rebuild the image from scratch
+./run_contained.sh --help              # everything the script can do
+```
+
+**Giving the assistant a model**
+
+- *Local (MLX):* start a server on your Mac, for example `mlx_lm.server --model mlx-community/Qwen3-8B-4bit --port 8081`, and Kaleidoscope finds it at `http://127.0.0.1:8081/v1` (from the container it is reached as `host.docker.internal`). Pick other models from the box beside the provider menu.
+- *Claude or OpenAI:* set the key before starting, e.g. `ANTHROPIC_API_KEY=... ./run_contained.sh`. An API provider receives the open file; a local one does not.
+- *More control* (several providers, token limits, timeouts): copy `providers.example.json` to `providers.json` and edit it. See [The assistant](#the-assistant).
+
+**Packages that are not in TeX Live** (for example `tikzflora`) go in the same workspace folder as your `.tex` file, with any `.lua` files they use; the container compiles from a copy of that folder.
+
+To run without Docker, see [Setup](#setup) below.
+
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  LaTeX Web Editor                               │
+│  Kaleidoscope                                   │
 ├──────────┬──────────────────────┬───────────────┤
 │          │                      │               │
 │ File     │   Text Editor        │ PDF Preview   │
@@ -41,7 +82,7 @@ A modern, web-based LaTeX editor with a clean three-pane interface and a task-or
 1. **Clone or download the project**
 
 ```bash
-cd latex-editor
+cd kaleidoscope
 ```
 
 2. **Install dependencies**
@@ -148,6 +189,10 @@ The script builds the image (TeX Live is large: the first build takes several mi
 4. **Close or delete**: `✕` closes a file opened from disk (the file on disk is kept) and deletes a browser-storage file.
 
 The browser can only reach files inside the workspace folder. Paths that leave it (`..`, absolute paths, symlinks that point outside) and hidden files are refused.
+
+### Completions
+
+Type a backslash and a letter (`\c`) and a list of matching commands appears at the caret, each with a short description. **↑ / ↓** choose, **Tab** inserts the command, with `{}` when it takes an argument and the caret placed inside (`\cite{|}`; `\frac` gives `\frac{|}{}`). **Esc** closes the list; typing on narrows it. Commands that take no argument (`\item`) are inserted as they are, and if the command is already followed by braces they are not added again. After `\begin{` or `\end{` the list offers environment names (`itemize`, `equation`, `tabular`, ...) and Tab also closes the brace. Nothing is offered inside a `%` comment. An inserted completion is ordinary typing: Ctrl/Cmd+Z undoes it. The commands and environments are listed in `public/complete.js`; add your own there.
 
 ### Layout and zoom
 

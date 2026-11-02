@@ -1,6 +1,6 @@
 # Features Overview
 
-Complete feature list and capabilities of the LaTeX Web Editor.
+Complete feature list and capabilities of the Kaleidoscope.
 
 ## Core Features
 

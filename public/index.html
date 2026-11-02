@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LaTeX Web Editor</title>
+    <title>Kaleidoscope</title>
+    <link rel="icon" type="image/svg+xml" href="kaleidoscope.svg">
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
@@ -12,7 +13,8 @@
         <!-- Left Sidebar: File Browser -->
         <div class="sidebar">
             <div class="sidebar-header">
-                <h2>Files</h2>
+                <img src="kaleidoscope.svg" class="logo" alt="Kaleidoscope" title="Kaleidoscope" width="26" height="26">
+                <h2>Kaleidoscope</h2>
                 <button id="browseBtn" class="btn-icon" title="Open a file from the workspace folder">📂</button>
                 <button id="newFileBtn" class="btn-icon" title="New browser-storage file">+</button>
                 <button id="uploadFileBtn" class="btn-icon" title="Import a file from your computer">↑</button>
@@ -99,6 +101,7 @@
     </dialog>
 
     <script src="edits.js"></script>
+    <script src="complete.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
