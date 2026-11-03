@@ -4,3 +4,6 @@ uploads/
 # Your own documents (the default workspace). The folder is kept so that a fresh clone has one.
 documents/*
 !documents/.gitkeep
+
+# Archives
+*.zip
