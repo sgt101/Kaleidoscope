@@ -70,6 +70,7 @@ build_app() {
 PLIST
     install -m 755 "$HERE/launcher.sh" "$app/Contents/MacOS/Kaleidoscope"
     install -m 755 "$HERE/start.command" "$app/Contents/Resources/start.command"
+    install -m 755 "$HERE/start.command" "$app/Contents/Resources/setup.command" # the same, run with --setup
     make_icon "$app/Contents/Resources/AppIcon.icns"
     if [ "$link" = 1 ]; then
         printf '%s' "$ROOT" > "$app/Contents/Resources/kaleidoscope-home"

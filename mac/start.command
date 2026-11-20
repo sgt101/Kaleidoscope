@@ -27,6 +27,8 @@ if [ ! -x "$HOME_DIR/run_contained.sh" ]; then
 fi
 
 cd "$HOME_DIR" || exit 1
+# Opened as setup.command (Option held as the app opened): ask the assistant's setup questions again first.
+[ "$(basename "$0")" = setup.command ] && ARGS+=(--setup)
 "$HOME_DIR/run_contained.sh" --open "${ARGS[@]+"${ARGS[@]}"}"
 status=$?
 if [ "$status" != 0 ] && [ "$status" != 130 ] && [ "$status" != 129 ]; then

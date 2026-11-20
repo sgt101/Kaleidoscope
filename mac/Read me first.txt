@@ -19,7 +19,27 @@ http://localhost:3000.
   It starts with an example: open test.tex, choose LuaLaTeX and press Compile PDF.
 - To stop Kaleidoscope, close its Terminal window (or press Ctrl+C in it).
 
-If macOS says Kaleidoscope cannot be opened
+Choosing the assistant's models again
+-------------------------------------
+Hold the Option key while you open Kaleidoscope. Its Terminal window asks the setup questions again, then starts it.
+Do this after you start a local model server, or get an API key, that the first setup did not find.
+
+Using a local model (MLX)
+-------------------------
+The assistant can use a model running on your own Mac, so your documents never leave it. Kaleidoscope does not
+include one: you run an MLX model server yourself. This needs a Mac with Apple silicon (M1 or later) and Node.js.
+
+1. Install the server, with uv (https://docs.astral.sh/uv/):
+       uv tool install mlx-lm
+2. Start it in a Terminal window, and leave it running (the first start downloads the model, about 5 GB):
+       mlx_lm.server --model mlx-community/Qwen3-8B-4bit --port 8081
+3. Open Kaleidoscope. The first time, setup finds the server and offers it; if Kaleidoscope was set up before the
+   server ran, hold Option while opening it. Then choose "MLX (local)" in the menu above the chat.
+
+Any model from https://huggingface.co/mlx-community that fits in your Mac's memory will do; type its name in the box
+beside the menu. LM Studio and Ollama work too: start them first and setup finds them.
+
+
 -------------------------------------------
 Unless this copy was signed and notarised, macOS stops it the first time. Open System Settings, then Privacy &
 Security, scroll down to the message about Kaleidoscope, and click Open Anyway. You only need to do this once.

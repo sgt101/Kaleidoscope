@@ -31,7 +31,7 @@ Kaleidoscope runs in a container: the server, TeX Live (pdfLaTeX, LuaLaTeX, XeLa
 
 **You need** Docker (Docker Desktop on macOS). For the assistant you also need Node.js 20 or later on your machine, with no packages; without it the editor and compiler still work.
 
-**On a Mac, with the installer.** [Download Kaleidoscope.dmg](https://github.com/sgt101/Kaleidoscope/releases/latest/download/Kaleidoscope.dmg), open it, drag Kaleidoscope onto Applications, and open it from there. A Terminal window starts it and your browser opens the editor; close that window to stop it. Your documents go in `Documents/Kaleidoscope`, which starts with an example. The `Read me first.txt` in the installer covers the rest, including what to do if macOS will not open an unsigned app. To make the installer, see [The Mac app](#the-mac-app).
+**On a Mac, with the installer.** [Download Kaleidoscope.dmg](https://github.com/sgt101/Kaleidoscope/releases/latest/download/Kaleidoscope.dmg), open it, drag Kaleidoscope onto Applications, and open it from there. A Terminal window starts it and your browser opens the editor; close that window to stop it. Your documents go in `Documents/Kaleidoscope`, which starts with an example. Hold **Option** while opening the app to choose the assistant's models again. The `Read me first.txt` in the installer covers the rest, including what to do if macOS will not open an unsigned app. To make the installer, see [The Mac app](#the-mac-app).
 
 **From the source**, on macOS or Linux:
 
@@ -62,9 +62,14 @@ The first run asks a few questions about the assistant (see below), then builds 
 
 **Giving the assistant a model**
 
-The first run sets this up. It looks for local model servers (MLX, LM Studio, Ollama, llama.cpp), any keys already set, and on a Mac Keychain items that look right, and asks which to use. It asks where your keys are kept, never for a key. Start your local model server first, so that it can be found. Run `./run_contained.sh --setup` to go through it again. See [Setup](#the-assistant).
+The first run sets this up. It looks for local model servers (MLX, LM Studio, Ollama, llama.cpp), any keys already set, and on a Mac Keychain items that look right, and asks which to use. It asks where your keys are kept, never for a key. Start your local model server first, so that it can be found. Run `./run_contained.sh --setup` to go through it again, or with the Mac app, hold **Option** while opening it. See [Setup](#the-assistant).
 
-- *Local (MLX):* start a server on your Mac, for example `mlx_lm.server --model mlx-community/Qwen3-8B-4bit --port 8081`. Choose other models in the box beside the provider menu. With `mlx_vlm.server`, also name the model: see [Choosing the model](#the-assistant).
+- *Local (MLX):* on a Mac with Apple silicon, install a server and start it before Kaleidoscope, so that setup finds it. Kaleidoscope does not include one, from the installer or the source:
+  ```bash
+  uv tool install mlx-lm
+  mlx_lm.server --model mlx-community/Qwen3-8B-4bit --port 8081
+  ```
+  The first start downloads the model (about 5 GB). Choose other models in the box beside the provider menu. With `mlx_vlm.server`, also name the model: see [Choosing the model](#the-assistant). The assistant needs Node.js on the Mac as well, for the [bridge](#the-assistant) that passes requests to the server.
 - *Claude or OpenAI:* keep the key in your Mac's Keychain, or set it before starting (`ANTHROPIC_API_KEY=... ./run_contained.sh`), or put it in `.env` (copy `.env.example`). The key stays on your machine: it never enters the container. A hosted provider receives the open file; a local one does not.
 - *More control* (token limits, timeouts, other services): edit the file setup saved. See [The assistant](#the-assistant).
 
@@ -74,7 +79,7 @@ Prefer no Docker? See [Running without Docker](#running-without-docker).
 
 ## The Mac app
 
-`mac/build.sh` makes Kaleidoscope.app, with the logo as its icon. Opening it starts Docker Desktop if needed, then runs `./run_contained.sh --open` in a Terminal window, so the first-run questions and the first build show there and the browser opens when the editor is ready. If Kaleidoscope is already running, the app only opens the browser. Closing the Terminal window stops Kaleidoscope.
+`mac/build.sh` makes Kaleidoscope.app, with the logo as its icon. Opening it starts Docker Desktop if needed, then runs `./run_contained.sh --open` in a Terminal window, so the first-run questions and the first build show there and the browser opens when the editor is ready. If Kaleidoscope is already running, the app only opens the browser. Closing the Terminal window stops Kaleidoscope. Holding **Option** while opening it runs `./run_contained.sh --setup` instead, which asks the assistant's setup questions again and then starts Kaleidoscope.
 
 ```bash
 mac/build.sh app --link    # ~/Desktop/Kaleidoscope.app, which runs this checkout and its documents/ folder
@@ -627,6 +632,7 @@ Where to change things:
 - "Kaleidoscope cannot be opened" or "Apple could not verify": the app is not signed. Open System Settings › Privacy & Security, scroll to the message about Kaleidoscope and click **Open Anyway**. Once is enough.
 - The app asks for Docker: install Docker Desktop and start it once. If Docker does not start within two minutes, start it yourself and open the app again.
 - "Kaleidoscope is not at ... any more": an app made with `--link` runs the folder it was built from. Run `mac/build.sh app --link` again from where the project is now.
+- MLX or another local server is not offered: start it, then hold **Option** while opening the app to run setup again. MLX needs Apple silicon.
 - The Terminal window shows an error and waits: read it, then press Return. The same messages come from `./run_contained.sh`, below.
 
 **The container will not start**

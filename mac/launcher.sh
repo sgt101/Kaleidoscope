@@ -1,13 +1,24 @@
 #!/bin/bash
 # Kaleidoscope.app's own program (Contents/MacOS/Kaleidoscope). Double-clicking the app runs this. It checks for Docker,
 # opens the editor if it is already running, and otherwise starts it in a Terminal window (start.command), where the
-# first-run questions, the first build and Ctrl+C all work as they do from a shell.
+# first-run questions, the first build and Ctrl+C all work as they do from a shell. Held Option asks the setup questions
+# again first (setup.command).
 set -u
 
 RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
 URL="http://localhost:3000"
 # An app opened from the Finder gets a bare PATH: add where Docker Desktop and Homebrew put their commands.
 export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin:$HOME/.docker/bin:/Applications/Docker.app/Contents/Resources/bin"
+
+# Option held while opening: choose the assistant's models again (run_contained.sh --setup), in Terminal. Read first,
+# while the key is still down, not after waiting for Docker.
+option_held() {
+    local flags
+    flags="$(/usr/bin/osascript -l JavaScript -e 'ObjC.import("AppKit"); $.NSEvent.modifierFlags' 2>/dev/null)"
+    [ -n "$flags" ] && [ $(( flags & 524288 )) -ne 0 ] # NSEventModifierFlagOption
+}
+SETUP=0
+option_held && SETUP=1
 
 say() { /usr/bin/osascript -e "display dialog \"$1\" with title \"Kaleidoscope\" buttons {$2} default button 1 with icon caution" 2>/dev/null; }
 
@@ -26,6 +37,11 @@ if ! docker info >/dev/null 2>&1; then
         say "Docker did not start. Start Docker Desktop, wait until it says it is running, then open Kaleidoscope again." '"OK"' >/dev/null
         exit 1
     fi
+fi
+
+if [ "$SETUP" = 1 ]; then
+    open -a Terminal "$RES/setup.command"
+    exit 0
 fi
 
 # Already running: just show it.
