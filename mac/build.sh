@@ -3,7 +3,8 @@
 #
 #   mac/build.sh app --link [--out DIR]   # an app that runs THIS checkout (default: ~/Desktop): your own desktop icon
 #   mac/build.sh app [--out DIR]          # a self-contained app, with the program inside it (default: dist/)
-#   mac/build.sh dmg                      # dist/Kaleidoscope-<version>.dmg: the app, an Applications link and a read-me
+#   mac/build.sh dmg                      # dist/Kaleidoscope-<version>.dmg: the app, an Applications link and a read-me,
+#                                         # and the same as dist/Kaleidoscope.dmg, the name a GitHub release uses
 #
 # Signing, for a dmg other people download (optional; without it macOS makes them allow the app once, see the read-me):
 #   SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"  signs the app and the dmg
@@ -115,7 +116,9 @@ build_dmg() {
     rm -rf "$(dirname "$stage")"
     [ -n "${SIGN_IDENTITY:-}" ] && codesign --sign "$SIGN_IDENTITY" --timestamp "$dmg"
     notarise "$dmg"
-    echo "Built $dmg"
+    # The same file under a fixed name, for a GitHub release: the README links to releases/latest/download/Kaleidoscope.dmg.
+    cp -f "$dmg" "$DIST/Kaleidoscope.dmg"
+    echo "Built $dmg and $DIST/Kaleidoscope.dmg"
 }
 
 [ "$(uname -s)" = Darwin ] || die "this builds a Mac app: run it on a Mac"

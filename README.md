@@ -10,6 +10,8 @@ Here it is, a web-based LaTeX editor that runs on your own machine: edit on the 
 
 It runs in a docker container by default (it should be very easy to change this if you wanted), so you need docker desktop or something else that can run a docker container for you. 
 
+**[Download for Mac](https://github.com/sgt101/Kaleidoscope/releases/latest/download/Kaleidoscope.dmg)** (Apple silicon and Intel) · needs [Docker Desktop](https://www.docker.com/products/docker-desktop/) · [all releases](https://github.com/sgt101/Kaleidoscope/releases)
+
 ## Features
 
 - **Files** - open any `.tex`, `.bib`, `.sty`, `.cls`, `.bst`, `.txt` or `.md` file from a workspace folder on disk, or keep scratch files in the browser. Save writes back to disk; nothing is written until you press Save.
@@ -29,7 +31,7 @@ Kaleidoscope runs in a container: the server, TeX Live (pdfLaTeX, LuaLaTeX, XeLa
 
 **You need** Docker (Docker Desktop on macOS). For the assistant you also need Node.js 20 or later on your machine, with no packages; without it the editor and compiler still work.
 
-**On a Mac, with the installer.** Open `Kaleidoscope-<version>.dmg`, drag Kaleidoscope onto Applications, and open it from there. A Terminal window starts it and your browser opens the editor; close that window to stop it. Your documents go in `Documents/Kaleidoscope`, which starts with an example. The `Read me first.txt` in the installer covers the rest, including what to do if macOS will not open an unsigned app. To make the installer, see [The Mac app](#the-mac-app).
+**On a Mac, with the installer.** [Download Kaleidoscope.dmg](https://github.com/sgt101/Kaleidoscope/releases/latest/download/Kaleidoscope.dmg), open it, drag Kaleidoscope onto Applications, and open it from there. A Terminal window starts it and your browser opens the editor; close that window to stop it. Your documents go in `Documents/Kaleidoscope`, which starts with an example. The `Read me first.txt` in the installer covers the rest, including what to do if macOS will not open an unsigned app. To make the installer, see [The Mac app](#the-mac-app).
 
 **From the source**, on macOS or Linux:
 
@@ -79,6 +81,14 @@ mac/build.sh app --link    # ~/Desktop/Kaleidoscope.app, which runs this checkou
 mac/build.sh app           # dist/Kaleidoscope.app, self-contained
 mac/build.sh dmg           # dist/Kaleidoscope-<version>.dmg, an installer for other people
 ```
+
+To publish an installer, commit and push, then make a GitHub release with `dist/Kaleidoscope.dmg` attached; the download links in this README always fetch the newest release's `Kaleidoscope.dmg`:
+
+```bash
+gh release create v1.0.0 dist/Kaleidoscope.dmg --title "Kaleidoscope 1.0.0" --notes "Mac installer. Needs Docker Desktop; see Read me first.txt."
+```
+
+Raise `version` in `package.json` first, so the app reports the right version.
 
 A `--link` app runs the checkout it was built from, so rebuild it if you move the folder. The installer holds a self-contained app (the program is inside it; its workspace is `~/Documents/Kaleidoscope`, which it fills with the example `test.tex` the first time), a link to Applications to drag it onto, and `Read me first.txt`, which lists what to install (Docker Desktop, and Node.js for the assistant). The app carries no keys, `.env` or provider list of yours, so each person goes through the assistant's setup on the first start.
 
