@@ -25,6 +25,7 @@ const hasFile = (key) => Object.prototype.hasOwnProperty.call(state.files, key);
 
 // DOM Elements
 const editor = document.getElementById('editor');
+const editorLines = EditorLines.attach(editor, document.getElementById('editorLines'));
 const currentFileDisplay = document.getElementById('currentFile');
 const fileTree = document.getElementById('fileTree');
 const compileBtn = document.getElementById('compileBtn');
@@ -58,9 +59,15 @@ const providerSelect = document.getElementById('providerSelect');
 const modelInput = document.getElementById('modelInput');
 const modelList = document.getElementById('modelList');
 const assistantNote = document.getElementById('assistantStatus');
+const thinkDial = document.getElementById('thinkDial');
 const fixBtn = document.getElementById('fixBtn');
 const rewriteBtn = document.getElementById('rewriteBtn');
 const explainBtn = document.getElementById('explainBtn');
+const clearChatBtn = document.getElementById('clearChatBtn');
+const previewTab = document.getElementById('previewTab');
+const historyTab = document.getElementById('historyTab');
+let historyView = null; // the History tab (history-view.js), created in setupEventListeners
+let pdfSync = null; // moving between the source and the PDF (sync.js), created in setupEventListeners
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -81,7 +88,23 @@ function setupEventListeners() {
     // The in-memory copy follows every keystroke, so switching files or compiling never sees stale text;
     // only the (comparatively expensive) localStorage write is debounced.
     const saveSoon = debounce(saveState, 500);
-    LatexComplete.attach(editor); // before the handler below: an accepted completion is typed text like any other
+    LatexComplete.attach(editor); // before the handlers below: an accepted completion is typed text like any other
+
+    // Tab types a tab, and indents when several lines are selected. Esc first lets it leave the editor as usual, so that the
+    // keyboard alone can still get out.
+    let leaving = false;
+    editor.addEventListener('keydown', (e) => {
+        if (e.key === 'Shift') return;
+        const escaped = leaving;
+        leaving = e.key === 'Escape' && !e.defaultPrevented;
+        if (e.key !== 'Tab' || escaped || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+        e.preventDefault();
+        const change = EditorLines.indent(editor.value, editor.selectionStart, editor.selectionEnd, e.shiftKey);
+        if (!change) return;
+        replaceEditorRange(change.start, change.end, change.text);
+        editor.setSelectionRange(change.selStart, change.selEnd);
+    });
+
     editor.addEventListener('input', () => {
         if (state.currentFile) {
             state.files[state.currentFile] = editor.value;
@@ -91,6 +114,7 @@ function setupEventListeners() {
                 renderFileTree();
             }
             saveSoon();
+            if (historyView) historyView.editorChanged();
         }
     });
 
@@ -121,6 +145,7 @@ function setupEventListeners() {
         currentPdf = null;
         renderToken++;
         pdfPreview.innerHTML = '';
+        pdfSync.compiled();
     });
     // Remember the engine choice.
     try { engineSelect.value = localStorage.getItem('engine') || 'auto'; } catch { /* default stays Auto */ }
@@ -129,7 +154,11 @@ function setupEventListeners() {
     });
     loadProviders();
     setupLayout();
+    setupPaneToggles();
+    setupThinkDial();
     setupZoom();
+    setupHistory();
+    setupSync();
 
     chatInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -143,10 +172,12 @@ function setupEventListeners() {
     fixBtn.addEventListener('click', () => ask('fix'));
     rewriteBtn.addEventListener('click', () => ask('rewrite'));
     explainBtn.addEventListener('click', () => ask('explain'));
+    clearChatBtn.addEventListener('click', clearContext);
     providerSelect.addEventListener('change', () => {
         try { localStorage.setItem('provider', providerSelect.value); } catch { /* a convenience only */ }
         showModel();
         providerNote();
+        showThinkDial();
     });
     modelInput.addEventListener('change', () => {
         const provider = selectedProvider();
@@ -210,9 +241,11 @@ function renderFileTree() {
 function openFile(filename) {
     state.currentFile = filename;
     editor.value = state.files[filename];
+    editorLines.refresh();
     updateEditorHeader();
     renderFileTree();
     saveState();
+    if (historyView) historyView.fileChanged();
 }
 
 // Shows the open file's name (with its location and unsaved state) and enables Save for files on disk.
@@ -266,6 +299,8 @@ function deleteFile(filename) {
         if (state.currentFile === filename) {
             state.currentFile = null;
             editor.value = '';
+            editorLines.refresh();
+            if (historyView) historyView.fileChanged();
         }
         updateEditorHeader();
         renderFileTree();
@@ -381,6 +416,7 @@ function formatSize(bytes) {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+// Resolves whether the file could be opened.
 async function openWorkspaceFile(rel) {
     const key = WS_PREFIX + rel;
     try {
@@ -392,9 +428,11 @@ async function openWorkspaceFile(rel) {
         browseDialog.close();
         openFile(key);
         editor.focus();
+        return true;
     } catch (error) {
         browseStatus.textContent = error.message;
         browseStatus.className = 'browse-status error';
+        return false;
     }
 }
 
@@ -433,6 +471,7 @@ async function createWorkspaceFile() {
         browseDialog.close();
         openFile(key);
         editor.focus();
+        if (historyView) historyView.saved();
     } catch (error) {
         browseStatus.textContent = error.message;
         browseStatus.className = 'browse-status error';
@@ -459,6 +498,7 @@ async function saveToDisk() {
         if (state.files[key] === sent) state.dirty.delete(key);
         saveState();
         renderFileTree();
+        if (historyView) historyView.saved();
     } catch (error) {
         alert(`Could not save ${displayName(key)}: ${error.message}`);
     }
@@ -494,11 +534,13 @@ async function compileAndPreview() {
     }
 
     const compiledKey = state.currentFile;
+    showPaneTab('preview');
     compileBtn.disabled = true;
     compileBtn.textContent = 'Compiling...';
     currentPdf = null;
     renderToken++;
     pdfPreview.innerHTML = '<div class="error">Compiling...</div>';
+    pdfSync.compiled();
 
     try {
         // Compile what is in the editor right now, not the last saved copy.
@@ -514,6 +556,7 @@ async function compileAndPreview() {
             pdfPreview.appendChild(note);
         }
         await displayPDF(pdfData);
+        pdfSync.compiled(pdfData.sync, compiledKey);
     } catch (error) {
         compileErrors[compiledKey] = error.message;
         pdfPreview.innerHTML = `<div class="error">Compilation Error:<br>${escapeHtml(error.message)}</div>`;
@@ -551,7 +594,7 @@ async function compileLatex(texContent) {
         const pdfBlob = await response.blob();
         const notes = response.headers.get('X-Compile-Notes');
         return { type: 'pdf', blob: pdfBlob, engine: response.headers.get('X-Compile-Engine'),
-            notes: notes ? decodeURIComponent(notes) : '' };
+            sync: response.headers.get('X-Compile-Sync'), notes: notes ? decodeURIComponent(notes) : '' };
     } catch (error) {
         console.error('Compilation error:', error);
         throw error;
@@ -591,12 +634,15 @@ async function renderPDF() {
     for (let pageNum = 1; pageNum <= currentPdf.numPages; pageNum++) {
         const page = await currentPdf.getPage(pageNum);
         if (token !== renderToken) return;
-        const fit = available / page.getViewport({ scale: 1 }).width;
+        const pageWidth = page.getViewport({ scale: 1 }).width;
+        const fit = available / pageWidth;
         const viewport = page.getViewport({ scale: fit * zoom.pdf * ratio });
         const canvas = document.createElement('canvas');
         canvas.width = Math.floor(viewport.width);
         canvas.height = Math.floor(viewport.height);
         canvas.style.width = `${viewport.width / ratio}px`;
+        canvas.dataset.page = pageNum; // for sync.js, which works in PDF points
+        canvas.dataset.width = pageWidth;
         await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
         if (token !== renderToken) return;
         canvases.push(canvas);
@@ -628,6 +674,7 @@ async function loadProviders() {
         if (wanted) providerSelect.value = wanted;
         showModel();
         providerNote(info.error);
+        showThinkDial();
     } catch {
         assistantNote.textContent = '';
     }
@@ -657,6 +704,82 @@ function showModel() {
         option.value = name;
         return option;
     }));
+}
+
+// The thinking dial: how long a model that can think may do so before it answers, in steps of 30 s up to 10 minutes.
+// Kaleidoscope stops the thinking when the time is up and asks for the answer, so the times are real, not estimates.
+const THINK_STEP = 30;
+const THINK_STEPS = 20;
+let thinkSeconds = 60;
+
+const thinkLabel = (seconds) => {
+    if (!seconds) return 'Off';
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    return minutes ? `${minutes}m${rest ? rest : ''}` : `${rest}s`;
+};
+const thinkWords = (seconds) => {
+    if (!seconds) return 'Off: answers straight away';
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    const parts = [minutes && `${minutes} minute${minutes > 1 ? 's' : ''}`, rest && `${rest} seconds`].filter(Boolean);
+    return parts.join(' ');
+};
+const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+
+function setThinkSeconds(seconds, save = true) {
+    thinkSeconds = Math.min(Math.max(Math.round(seconds / THINK_STEP), 0), THINK_STEPS) * THINK_STEP;
+    const share = thinkSeconds / (THINK_STEPS * THINK_STEP);
+    thinkDial.setAttribute('aria-valuenow', String(thinkSeconds));
+    thinkDial.setAttribute('aria-valuetext', thinkWords(thinkSeconds));
+    thinkDial.classList.toggle('off', !thinkSeconds);
+    document.getElementById('thinkDialValue').textContent = thinkLabel(thinkSeconds);
+    document.getElementById('thinkDialFill').style.strokeDasharray = `${share * 100} 100`;
+    document.getElementById('thinkDialPointer').setAttribute('transform', `rotate(${-135 + share * 270} 20 20)`);
+    if (save) {
+        try { localStorage.setItem('thinkingSeconds', String(thinkSeconds)); } catch { /* a convenience only */ }
+    }
+}
+
+function setupThinkDial() {
+    let saved = null;
+    try { saved = localStorage.getItem('thinkingSeconds'); } catch { /* a convenience only */ }
+    setThinkSeconds(saved !== null && Number.isFinite(Number(saved)) ? Number(saved) : 60, false);
+
+    const nudge = (steps) => setThinkSeconds(thinkSeconds + steps * THINK_STEP);
+    thinkDial.addEventListener('keydown', (event) => {
+        const steps = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 4, PageDown: -4 }[event.key];
+        if (steps) nudge(steps);
+        else if (event.key === 'Home') setThinkSeconds(0);
+        else if (event.key === 'End') setThinkSeconds(THINK_STEPS * THINK_STEP);
+        else return;
+        event.preventDefault();
+    });
+    thinkDial.addEventListener('wheel', (event) => {
+        event.preventDefault();
+        if (event.deltaY) nudge(event.deltaY < 0 ? 1 : -1);
+    }, { passive: false });
+    // Drag up (or right) to turn it up: a step for every 8 pixels.
+    thinkDial.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        thinkDial.focus();
+        thinkDial.setPointerCapture(event.pointerId);
+        const from = { x: event.clientX, y: event.clientY, seconds: thinkSeconds };
+        const move = (e) => setThinkSeconds(from.seconds + Math.round(((from.y - e.clientY) + (e.clientX - from.x)) / 8) * THINK_STEP);
+        const end = () => {
+            thinkDial.removeEventListener('pointermove', move);
+            thinkDial.removeEventListener('pointerup', end);
+            thinkDial.removeEventListener('pointercancel', end);
+        };
+        thinkDial.addEventListener('pointermove', move);
+        thinkDial.addEventListener('pointerup', end);
+        thinkDial.addEventListener('pointercancel', end);
+    });
+}
+
+// The dial is shown for a provider whose thinking can be turned on and off.
+function showThinkDial() {
+    thinkDial.hidden = !selectedProvider()?.thinking;
 }
 
 function providerNote(error = '') {
@@ -689,6 +812,7 @@ function updateTaskButtons() {
     fixBtn.disabled = busy || !open || !compileErrors[state.currentFile];
     rewriteBtn.disabled = busy || !selected;
     explainBtn.disabled = busy || !open;
+    clearChatBtn.disabled = busy || !chatMessages.childElementCount;
 }
 
 function setBusy(busy) {
@@ -738,6 +862,9 @@ async function ask(task) {
         return;
     }
 
+    // Where the selection is now, for suggestions whose text occurs in several places.
+    const near = editor.selectionEnd > editor.selectionStart
+        ? { start: editor.selectionStart, end: editor.selectionEnd, text: editor.value.slice(editor.selectionStart, editor.selectionEnd) } : null;
     const shown = task === 'ask' ? typed : (typed ? `${TASK_LABELS[task]}: ${typed}` : TASK_LABELS[task]);
     addChatMessage(shown, 'user');
     chatInput.value = '';
@@ -752,7 +879,21 @@ async function ask(task) {
 
     let text = '';
     let final = null;
+    let thinkTimer = null; // the countdown shown while the model thinks
+    const stopCountdown = () => { clearInterval(thinkTimer); thinkTimer = null; };
+    const thinking = (seconds) => {
+        stopCountdown();
+        if (text) return;
+        const started = Date.now();
+        const tick = () => {
+            const spent = Math.round((Date.now() - started) / 1000);
+            reply.textContent = `${provider.label} is thinking… ${clock(seconds ? Math.min(spent, seconds) : spent)}${seconds ? ` of ${clock(seconds)}` : ''}`;
+        };
+        tick();
+        thinkTimer = setInterval(tick, 1000);
+    };
     const show = () => {
+        stopCountdown();
         reply.className = 'chat-message assistant';
         reply.textContent = text;
         chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -761,7 +902,10 @@ async function ask(task) {
         const response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ provider: provider.id, model: chosenModel(provider), task, message: typed, history, ...editorContext() }),
+            body: JSON.stringify({
+                provider: provider.id, model: chosenModel(provider), task, message: typed, history, ...editorContext(),
+                ...(provider.thinking ? { thinkingSeconds: thinkSeconds } : {})
+            }),
             signal: controller.signal
         });
         if (!response.ok) {
@@ -770,13 +914,15 @@ async function ask(task) {
         }
         for await (const event of readEvents(response)) {
             if (event.type === 'text') { text += event.text; show(); }
+            else if (event.type === 'thinking') thinking(event.seconds || 0);
+            else if (event.type === 'thinking-over') { stopCountdown(); reply.textContent = `Out of time to think: ${provider.label} is writing its answer…`; }
             else if (event.type === 'reset') { text = event.text; if (text) show(); else reply.textContent = 'Asking again…'; }
             else if (event.type === 'retry') { assistantNote.textContent = `Asking again: ${event.reason}.`; assistantNote.className = 'assistant-status warn'; }
             else if (event.type === 'error') throw new Error(event.message);
             else if (event.type === 'done') final = event;
         }
         if (!final) throw new Error('The connection closed before the answer was complete.');
-        renderAssistant(reply, final.text, { key, interactive: true, failures: final.failures, truncated: final.truncated });
+        renderAssistant(reply, final.text, { key, near, interactive: true, failures: final.failures, truncated: final.truncated });
         state.chatHistory.push({ role: 'assistant', content: final.text });
         saveState();
     } catch (error) {
@@ -789,6 +935,7 @@ async function ask(task) {
                 ? 'Cannot reach the editor server. Is it still running?' : error.message);
         }
     } finally {
+        stopCountdown();
         activeRequest = null;
         setBusy(false);
         providerNote();
@@ -797,6 +944,18 @@ async function ask(task) {
 }
 
 const sendMessage = () => ask('ask');
+
+// Forget the conversation: each question sends the chat so far, so the next one starts from the open file alone. Trifle
+// keeps the conversation in its own session, shared with its web page, which is not touched from here.
+function clearContext() {
+    state.chatHistory = [];
+    chatMessages.replaceChildren();
+    saveState();
+    updateTaskButtons();
+    const trifle = selectedProvider()?.kind === 'trifle';
+    assistantNote.textContent = trifle ? 'Chat cleared here; Trifle keeps its own conversation.' : 'Context cleared: the next question starts fresh.';
+    assistantNote.className = 'assistant-status ' + (trifle ? 'warn' : 'ok');
+}
 
 // What the assistant is shown of the editor: the open file, where the selection and the cursor are, and why the last
 // compile failed.
@@ -819,11 +978,12 @@ function addChatMessage(content, role) {
     messageEl.textContent = content;
     chatMessages.appendChild(messageEl);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+    updateTaskButtons();
     return messageEl;
 }
 
 // Fill `el` with an assistant reply: its text, and a card for each edit block.
-function renderAssistant(el, text, { key = null, interactive = false, failures = [], truncated = false } = {}) {
+function renderAssistant(el, text, { key = null, near = null, interactive = false, failures = [], truncated = false } = {}) {
     el.className = 'chat-message assistant';
     el.replaceChildren();
     const cards = [];
@@ -835,7 +995,7 @@ function renderAssistant(el, text, { key = null, interactive = false, failures =
             el.append(part);
         } else {
             const failure = failures.find((f) => f.index === cards.length);
-            const card = editCard(segment, { key, interactive, problem: failure ? failure.reason : '' });
+            const card = editCard(segment, { key, near, interactive, problem: failure ? failure.reason : '' });
             cards.push(card);
             el.append(card.element);
         }
@@ -846,7 +1006,7 @@ function renderAssistant(el, text, { key = null, interactive = false, failures =
         note.textContent = 'The answer stopped at the model\'s output limit and may be incomplete.';
         el.append(note);
     }
-    const open = cards.filter((card) => card.canAccept);
+    const open = cards.filter((card) => card.canAccept && card.fits);
     if (interactive && open.length > 1) {
         const row = document.createElement('div');
         row.className = 'edit-actions';
@@ -863,7 +1023,7 @@ function renderAssistant(el, text, { key = null, interactive = false, failures =
     if (!el.childNodes.length) el.textContent = text;
 }
 
-function editCard(edit, { key, interactive, problem }) {
+function editCard(edit, { key, near, interactive, problem }) {
     const element = document.createElement('div');
     element.className = 'edit-card';
     const head = document.createElement('div');
@@ -888,7 +1048,7 @@ function editCard(edit, { key, interactive, problem }) {
     }
     if (!removed.length && !added.length) diff.textContent = '(no change)';
 
-    const card = { element, canAccept: false, accept: () => false };
+    const card = { element, canAccept: false, fits: !problem, accept: () => false };
     element.append(head, diff);
     if (!interactive) return card;
 
@@ -902,16 +1062,15 @@ function editCard(edit, { key, interactive, problem }) {
 
     const finish = (label, cls) => {
         status.textContent = label;
+        element.classList.remove('failed');
         element.classList.add(cls);
         accept.disabled = reject.disabled = true;
         card.canAccept = false;
     };
+    // A verdict from when the answer arrived. The file may change, so Accept always looks again.
     if (problem) {
-        status.textContent = `Not applicable: it ${problem}.`;
+        status.textContent = `Did not fit the file: it ${problem}. Accept tries again.`;
         element.classList.add('failed');
-        accept.disabled = true;
-        reject.disabled = true;
-        return card;
     }
 
     card.canAccept = true;
@@ -921,7 +1080,7 @@ function editCard(edit, { key, interactive, problem }) {
             status.textContent = `Open ${displayName(key)} to apply this.`;
             return false;
         }
-        const failure = applyEdit(edit);
+        const failure = applyEdit(edit, near);
         if (failure) {
             status.textContent = `Cannot apply: it ${LatexEdits.describe(failure)}.`;
             return false;
@@ -935,30 +1094,90 @@ function editCard(edit, { key, interactive, problem }) {
 }
 
 // Put an edit into the editor through the text field's own undo stack. Returns null, or why it does not fit.
-function applyEdit(edit) {
-    const where = LatexEdits.locate(editor.value, edit.search);
+function applyEdit(edit, near = null) {
+    // The selection only helps while its text is still where it was.
+    const stillThere = near && editor.value.slice(near.start, near.end) === near.text;
+    const where = LatexEdits.locate(editor.value, edit.search, stillThere ? { near } : {});
     if (where.error) return where;
-    const before = editor.value;
-    const expected = before.slice(0, where.start) + edit.replace + before.slice(where.end);
+    replaceEditorRange(where.start, where.end, edit.replace);
+    updateTaskButtons();
+    return null;
+}
+
+// Replace the editor's text with `text` (a version from History), changing only the part that differs so the scroll
+// position stays put and Ctrl/Cmd+Z undoes it in one step. Returns false if the text is already there.
+function restoreEditorText(text) {
+    const current = editor.value;
+    if (current === text) return false;
+    let start = 0;
+    while (start < current.length && start < text.length && current[start] === text[start]) start++;
+    let end = 0;
+    while (end < current.length - start && end < text.length - start
+        && current[current.length - 1 - end] === text[text.length - 1 - end]) end++;
+    replaceEditorRange(start, current.length - end, text.slice(start, text.length - end));
+    updateTaskButtons();
+    return true;
+}
+
+// Replace editor.value[start, end) with `text` through the text field's own undo stack.
+function replaceEditorRange(start, end, text) {
+    const expected = editor.value.slice(0, start) + text + editor.value.slice(end);
     editor.focus();
-    editor.setSelectionRange(where.start, where.end);
+    editor.setSelectionRange(start, end);
     let done = false;
     try {
-        done = edit.replace ? document.execCommand('insertText', false, edit.replace) : document.execCommand('delete');
+        done = text ? document.execCommand('insertText', false, text) : document.execCommand('delete');
     } catch { /* no execCommand: use the fallback */ }
     if (!done || editor.value !== expected) {
         editor.value = expected; // loses the native undo, but the text is right
         editor.dispatchEvent(new Event('input', { bubbles: true }));
     }
-    editor.setSelectionRange(where.start, where.start + edit.replace.length);
-    updateTaskButtons();
-    return null;
+    editor.setSelectionRange(start, start + text.length);
 }
 
 function loadChatHistory() {
     state.chatHistory.forEach((msg) => {
         const el = addChatMessage(msg.content, msg.role);
         if (msg.role === 'assistant') renderAssistant(el, msg.content);
+    });
+}
+
+// ---- Hiding the file list and the chat ----
+// To leave the editor and the preview the whole window. Remembered in this browser, like the pane sizes.
+const PANES = {
+    sidebar: { panel: 'sidebar', button: 'toggleSidebarBtn', className: 'hide-sidebar', key: 'b', label: 'file list' },
+    chat: { panel: 'chatPanel', button: 'toggleChatBtn', className: 'hide-chat', key: 'j', label: 'chat' }
+};
+const hiddenPanes = (() => {
+    const saved = loadJSON('hiddenPanes', {}) || {};
+    return { sidebar: saved.sidebar === true, chat: saved.chat === true };
+})();
+
+function showPane(name, shown) {
+    const pane = PANES[name];
+    const panel = document.getElementById(pane.panel);
+    if (!shown && panel.contains(document.activeElement)) editor.focus(); // focus must not be left in a hidden pane
+    hiddenPanes[name] = !shown;
+    document.body.classList.toggle(pane.className, !shown);
+    const button = document.getElementById(pane.button);
+    button.setAttribute('aria-expanded', String(shown));
+    button.title = `${shown ? 'Hide' : 'Show'} the ${pane.label} (Ctrl/Cmd + ${pane.key.toUpperCase()})`;
+    fitLayout(); // the room the others have changed
+    saveJSON('hiddenPanes', hiddenPanes);
+}
+
+function setupPaneToggles() {
+    for (const name of Object.keys(PANES)) {
+        showPane(name, !hiddenPanes[name]);
+        document.getElementById(PANES[name].button).addEventListener('click', () => showPane(name, hiddenPanes[name]));
+    }
+    // Ctrl/Cmd + B and J, as in most code editors. Anywhere on the page, the editor included.
+    document.addEventListener('keydown', (e) => {
+        if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.isComposing) return;
+        const name = Object.keys(PANES).find((candidate) => PANES[candidate].key === e.key.toLowerCase());
+        if (!name) return;
+        e.preventDefault();
+        showPane(name, hiddenPanes[name]);
     });
 }
 
@@ -976,10 +1195,11 @@ function saveJSON(key, value) {
 function clampLayout(name, value) {
     const container = document.querySelector('.editor-container');
     const previewVisible = getComputedStyle(previewPane).display !== 'none';
-    const room = container.clientWidth - (previewVisible ? 2 : 1) * 5 - 200; // keep at least 200px for the editor
+    const sidebarVisible = !hiddenPanes.sidebar;
+    const room = container.clientWidth - (Number(previewVisible) + Number(sidebarVisible)) * 5 - 200; // keep at least 200px for the editor
     const limits = {
         sidebar: [120, Math.max(120, room - (previewVisible ? layout.preview : 0))],
-        preview: [150, Math.max(150, room - layout.sidebar)],
+        preview: [150, Math.max(150, room - (sidebarVisible ? layout.sidebar : 0))],
         chat: [80, Math.max(80, window.innerHeight - 200)]
     }[name];
     return Math.round(Math.min(limits[1], Math.max(limits[0], value)));
@@ -991,6 +1211,12 @@ function applyLayout() {
     root.setProperty('--sidebar-w', `${layout.sidebar}px`);
     root.setProperty('--preview-w', `${layout.preview}px`);
     root.setProperty('--chat-h', `${layout.chat}px`);
+}
+
+// Sizes that no longer fit, after the window or the panes shown changed, are brought back within the limits.
+function fitLayout() {
+    for (const name of ['preview', 'sidebar', 'chat']) layout[name] = clampLayout(name, layout[name]);
+    applyLayout();
 }
 
 function setupLayout() {
@@ -1056,11 +1282,72 @@ function setupLayout() {
     const rerender = debounce(() => {
         if (Math.abs(pdfPreview.clientWidth - lastRenderWidth) > 1) renderPDF();
     }, 200);
-    window.addEventListener('resize', () => {
-        for (const name of ['sidebar', 'preview', 'chat']) layout[name] = clampLayout(name, layout[name]);
-        applyLayout();
-    });
+    window.addEventListener('resize', fitLayout);
     new ResizeObserver(rerender).observe(pdfPreview);
+}
+
+// ---- Moving between the source and the PDF ----
+function setupSync() {
+    pdfSync = PdfSync.create({ editor, preview: pdfPreview }, {
+        fileKey: () => state.currentFile,
+        sourcePath(compiledKey) {
+            if (state.currentFile === compiledKey) return '';
+            return isWorkspaceKey(state.currentFile) ? displayName(state.currentFile) : null;
+        },
+        visible: () => previewPane.dataset.tab !== 'history',
+        pdf: () => currentPdf,
+        keyOf: (path) => WS_PREFIX + path,
+        async text(key) {
+            if (key === state.currentFile) return editor.value;
+            if (hasFile(key)) return state.files[key];
+            if (!isWorkspaceKey(key)) return null;
+            return api('/api/fs/file?path=' + encodeURIComponent(displayName(key))).then((data) => data.content, () => null);
+        },
+        async open(key) {
+            if (key === state.currentFile) return true;
+            if (isWorkspaceKey(key)) return openWorkspaceFile(displayName(key));
+            if (!hasFile(key)) return false;
+            openFile(key);
+            return true;
+        }
+    });
+}
+
+// ---- Right pane: Preview and History tabs ----
+function showPaneTab(tab) {
+    const history = tab === 'history';
+    previewPane.dataset.tab = history ? 'history' : 'preview';
+    previewTab.classList.toggle('active', !history);
+    historyTab.classList.toggle('active', history);
+    previewTab.setAttribute('aria-selected', String(!history));
+    historyTab.setAttribute('aria-selected', String(history));
+    try { localStorage.setItem('paneTab', previewPane.dataset.tab); } catch { /* a convenience only */ }
+    if (!historyView) return;
+    if (history) historyView.show();
+    else historyView.hide();
+}
+
+function setupHistory() {
+    historyView = HistoryView.create({
+        list: document.getElementById('historyList'),
+        detail: document.getElementById('historyDetail'),
+        status: document.getElementById('historyStatus'),
+        scope: document.getElementById('historyScope'),
+        refresh: document.getElementById('historyRefresh')
+    }, {
+        current() {
+            const key = state.currentFile;
+            if (!key || !hasFile(key)) return null;
+            return isWorkspaceKey(key) ? { path: displayName(key), text: editor.value } : { scratch: true };
+        },
+        restore: restoreEditorText,
+        open: openWorkspaceFile
+    });
+    previewTab.addEventListener('click', () => showPaneTab('preview'));
+    historyTab.addEventListener('click', () => showPaneTab('history'));
+    let tab = 'preview';
+    try { tab = localStorage.getItem('paneTab') || 'preview'; } catch { /* a convenience only */ }
+    showPaneTab(tab);
 }
 
 // ---- Zoom: editor text size and PDF preview ----

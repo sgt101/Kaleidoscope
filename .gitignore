@@ -1,9 +1,20 @@
+node_modules/
+.DS_Store
 .env
 uploads/
 
 # Your own documents (the default workspace). The folder is kept so that a fresh clone has one.
 documents/*
 !documents/.gitkeep
+# ...except the example, and the tikzflora package it uses
+!documents/test.tex
+!documents/tikzflora.sty
+!documents/tikzflora-boot.lua
+!documents/tikzflora-LICENSE
+!documents/lua/
 
 # Archives
 *.zip
+
+# Built Mac app and installer (mac/build.sh)
+dist/

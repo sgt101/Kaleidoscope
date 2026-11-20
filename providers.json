@@ -6,8 +6,8 @@
       "label": "MLX (local)",
       "kind": "openai",
       "url": "http://127.0.0.1:8081/v1",
-      "model": "default_model",
-      "contextChars": 32000,
+      "model": "mlx-community/Qwen3.8-27B-4bit",
+      "contextChars": 100000,
       "maxTokens": 16384,
       "timeoutSeconds": 300
     },
@@ -16,7 +16,8 @@
       "label": "Claude",
       "kind": "anthropic",
       "model": "claude-sonnet-5-5",
-      "keyEnv": "ANTHROPIC_API_KEY"
+      "keyEnv": "ANTHROPIC_API_KEY",
+      "contextChars": 400000
     },
     {
       "id": "openai",
@@ -24,7 +25,8 @@
       "kind": "openai",
       "url": "https://api.openai.com/v1",
       "model": "gpt-5",
-      "keyEnv": "OPENAI_API_KEY"
+      "keyEnv": "OPENAI_API_KEY",
+      "contextChars": 400000
     },
     {
       "id": "trifle",

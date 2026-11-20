@@ -338,5 +338,5 @@
         return { hide };
     }
 
-    return { COMMANDS, ENVIRONMENTS, context, suggest, insertion, label, attach };
+    return { COMMANDS, ENVIRONMENTS, context, suggest, insertion, label, attach, caretRect };
 });

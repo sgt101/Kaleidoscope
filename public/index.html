@@ -11,7 +11,7 @@
 <body>
     <div class="editor-container">
         <!-- Left Sidebar: File Browser -->
-        <div class="sidebar">
+        <div id="sidebar" class="sidebar">
             <div class="sidebar-header">
                 <img src="kaleidoscope.svg" class="logo" alt="Kaleidoscope" title="Kaleidoscope" width="26" height="26">
                 <h2>Kaleidoscope</h2>
@@ -28,6 +28,12 @@
         <!-- Center: Text Editor -->
         <div class="editor-main">
             <div class="editor-header">
+                <button id="toggleSidebarBtn" class="btn-icon pane-toggle" aria-controls="sidebar" aria-expanded="true" aria-label="File list" title="Hide the file list (Ctrl/Cmd + B)">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><line x1="6" y1="2.5" x2="6" y2="13.5"/></svg>
+                </button>
+                <button id="toggleChatBtn" class="btn-icon pane-toggle" aria-controls="chatPanel" aria-expanded="true" aria-label="Chat" title="Hide the chat (Ctrl/Cmd + J)">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>
+                </button>
                 <div id="currentFile" class="current-file">No file selected</div>
                 <select id="engineSelect" class="engine-select" aria-label="TeX engine" title="TeX engine. Auto follows a '% !TEX program = lualatex' comment, or picks LuaLaTeX for Lua / fontspec documents.">
                     <option value="auto">Engine: Auto</option>
@@ -43,30 +49,47 @@
                 <button id="saveBtn" class="btn-secondary" disabled>Save</button>
                 <button id="compileBtn" class="btn-primary">Compile PDF</button>
             </div>
-            <textarea id="editor" class="editor-textarea" placeholder="Select a file to edit or create a new one..."></textarea>
+            <div class="editor-body">
+                <textarea id="editor" class="editor-textarea" placeholder="Select a file to edit or create a new one..."></textarea>
+                <div id="editorLines" class="editor-lines" aria-hidden="true"></div>
+            </div>
         </div>
 
         <div id="splitPreview" class="splitter" role="separator" aria-orientation="vertical" aria-label="Resize preview" tabindex="0" title="Drag to resize (double-click to reset)"></div>
 
-        <!-- Right: Preview Pane -->
-        <div class="preview-pane">
+        <!-- Right: Preview and History -->
+        <div class="preview-pane" data-tab="preview">
             <div class="preview-header">
-                <h3>Preview</h3>
-                <div class="zoom-group" role="group" aria-label="Preview zoom">
+                <div class="pane-tabs" role="tablist" aria-label="Right pane">
+                    <button id="previewTab" class="pane-tab" role="tab" aria-controls="pdfPreview">Preview</button>
+                    <button id="historyTab" class="pane-tab" role="tab" aria-controls="historyPanel" title="Versions recorded each time you save">History</button>
+                </div>
+                <div class="zoom-group preview-only" role="group" aria-label="Preview zoom">
                     <button id="pdfZoomOut" class="btn-icon" title="Zoom out" aria-label="Zoom out preview">−</button>
                     <button id="pdfZoomReset" class="zoom-value" title="Fit page width">100%</button>
                     <button id="pdfZoomIn" class="btn-icon" title="Zoom in (or Ctrl + scroll)" aria-label="Zoom in preview">+</button>
                 </div>
-                <button id="clearPreviewBtn" class="btn-icon" title="Clear">✕</button>
+                <button id="clearPreviewBtn" class="btn-icon preview-only" title="Clear">✕</button>
+                <select id="historyScope" class="engine-select history-only" aria-label="Which versions to list" title="Which versions to list">
+                    <option value="file">This file</option>
+                    <option value="folder">This folder</option>
+                    <option value="all">Everything</option>
+                </select>
+                <button id="historyRefresh" class="btn-icon history-only" title="Refresh" aria-label="Refresh history">↻</button>
             </div>
-            <div id="pdfPreview" class="pdf-preview"></div>
+            <div id="pdfPreview" class="pdf-preview" role="tabpanel" aria-labelledby="previewTab"></div>
+            <div id="historyPanel" class="history-panel" role="tabpanel" aria-labelledby="historyTab">
+                <div id="historyList" class="history-list" aria-label="Versions"></div>
+                <div id="historyDetail" class="history-detail"></div>
+                <div id="historyStatus" class="history-status" role="status"></div>
+            </div>
         </div>
     </div>
 
     <div id="splitChat" class="splitter horizontal" role="separator" aria-orientation="horizontal" aria-label="Resize chat" tabindex="0" title="Drag to resize (double-click to reset)"></div>
 
     <!-- Chat Bar at Bottom -->
-    <div class="chat-container">
+    <div id="chatPanel" class="chat-container">
         <div class="assistant-bar">
             <select id="providerSelect" class="engine-select" aria-label="Model provider" title="Which model answers"></select>
             <input id="modelInput" class="model-input" list="modelList" type="text" spellcheck="false" autocomplete="off" aria-label="Model" placeholder="model" title="Which model answers. Pick one from the list or type a name; empty uses the provider's default.">
@@ -76,9 +99,21 @@
             <button id="fixBtn" class="btn-secondary btn-small" disabled title="Ask the model to fix the error from the last compile">Fix error</button>
             <button id="rewriteBtn" class="btn-secondary btn-small" disabled title="Select text, say in the box below how to change it, then press this">Rewrite selection</button>
             <button id="explainBtn" class="btn-secondary btn-small" disabled title="Explain the selection, or the compile error, or the document">Explain</button>
+            <button id="clearChatBtn" class="btn-secondary btn-small" disabled title="Forget this conversation, so the next question starts fresh. The model still sees the open file.">Clear context</button>
         </div>
         <div id="chatMessages" class="chat-messages"></div>
         <div class="chat-input-area">
+            <div id="thinkDial" class="think-dial" role="slider" tabindex="0" hidden aria-label="Thinking time"
+                aria-valuemin="0" aria-valuemax="600" aria-valuenow="60" aria-valuetext="1 minute"
+                title="How long the model may think before it answers. Drag up or down, scroll, or use the arrow keys. Off answers straight away.">
+                <svg viewBox="0 0 40 40" aria-hidden="true">
+                    <path class="think-dial-track" pathLength="100" d="M 11.5 28.5 A 12 12 0 1 1 28.5 28.5"/>
+                    <path id="thinkDialFill" class="think-dial-fill" pathLength="100" d="M 11.5 28.5 A 12 12 0 1 1 28.5 28.5"/>
+                    <circle class="think-dial-knob" cx="20" cy="20" r="8"/>
+                    <line id="thinkDialPointer" class="think-dial-pointer" x1="20" y1="20" x2="20" y2="13.5"/>
+                </svg>
+                <span id="thinkDialValue" class="think-dial-value">1m</span>
+            </div>
             <textarea id="chatInput" class="chat-input" placeholder="Ask about this file, or describe a change... (Enter to send, Shift+Enter for a new line)"></textarea>
             <button id="sendBtn" class="btn-primary">Send</button>
             <button id="stopBtn" class="btn-secondary" hidden>Stop</button>
@@ -101,7 +136,12 @@
     </dialog>
 
     <script src="edits.js"></script>
+    <script src="lines.js"></script>
     <script src="complete.js"></script>
+    <script src="diff.js"></script>
+    <script src="history-view.js"></script>
+    <script src="pdftext.js"></script>
+    <script src="sync.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

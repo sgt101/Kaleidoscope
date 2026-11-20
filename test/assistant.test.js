@@ -55,6 +55,27 @@ test('openai provider streams text and sends the key', async () => {
     } finally { mock.close(); }
 });
 
+test('extraBody fields go into each request, and temperature still wins', async () => {
+    const mock = await mockServer('openai', ['thought it over']);
+    try {
+        const provider = make({ url: mock.url + '/v1', temperature: 0.2, extraBody: { enable_thinking: true, top_k: 20, temperature: 1 } });
+        await providers.complete(provider, { system: 'SYS', messages: [{ role: 'user', content: 'hi' }] });
+        const sent = mock.requests[0].body;
+        assert.equal(sent.enable_thinking, true);
+        assert.equal(sent.top_k, 20);
+        assert.equal(sent.temperature, 0.2);
+        assert.equal(sent.model, 'mm');
+        assert.equal(sent.stream, true);
+    } finally { mock.close(); }
+});
+
+test('extraBody must be an object, and cannot set what Kaleidoscope sets', () => {
+    assert.deepEqual(make({ url: 'http://x/v1' }).extraBody, {});
+    assert.throws(() => make({ url: 'http://x/v1', extraBody: [1] }), /extraBody must be an object/);
+    assert.throws(() => make({ url: 'http://x/v1', extraBody: 'thinking' }), /extraBody must be an object/);
+    assert.throws(() => make({ url: 'http://x/v1', extraBody: { stream: false, model: 'y' } }), /cannot set stream, model/);
+});
+
 test('anthropic provider puts the system prompt at the top level', async () => {
     const mock = await mockServer('anthropic', ['claude says hi']);
     try {
@@ -125,6 +146,176 @@ test('runTask sends numbered context and the compile error', async () => {
     } finally { mock.close(); }
 });
 
+test('every system prompt mentions the container, but only when the server runs in one', async () => {
+    const system = async (task, env) => {
+        const mock = await mockServer('openai', ['An answer.']);
+        try {
+            await assistant.runTask({
+                provider: make({ url: mock.url + '/v1' }), task, message: 'hi', history: [], env,
+                context: { fileName: 'main.tex', document: DOC, selStart: 0, selEnd: 5, cursor: -1, compileError: '' },
+                emit: () => {}
+            });
+            return mock.requests[0].body.messages[0].content;
+        } finally { mock.close(); }
+    };
+    for (const task of assistant.TASKS) {
+        const note = await system(task, { KALEIDOSCOPE_CONTAINER: '1' });
+        assert.match(note, /inside a Docker container.*real cause of an error/s, task);
+        assert.match(note, /Arial -> Liberation Sans, Helvetica -> TeX Gyre Heros/, task);
+        assert.doesNotMatch(await system(task, {}), /Docker/, task);
+    }
+});
+
+test('rewriting a phrase that also occurs elsewhere fits, because the selection says which one', async () => {
+    const document = 'We see the results here.\nLater, the results again.\n';
+    const start = document.lastIndexOf('the results');
+    const mock = await mockServer('openai', ['Done.\n' + block('the results', 'our findings')]);
+    try {
+        const result = await assistant.runTask({
+            provider: make({ url: mock.url + '/v1' }), task: 'rewrite', message: 'better', history: [],
+            context: { fileName: 'main.tex', document, selStart: start, selEnd: start + 11, cursor: -1, compileError: '' },
+            emit: () => {}
+        });
+        assert.deepEqual(result.failures, []);
+        assert.equal(mock.requests.length, 1);
+    } finally { mock.close(); }
+});
+
+// A server that streams `events` (the deltas of one answer) as server-sent events.
+function streaming(kind, events) {
+    const server = http.createServer((req, res) => {
+        req.resume();
+        req.on('end', () => {
+            res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+            for (const delta of events) {
+                res.write(`data: ${JSON.stringify(kind === 'anthropic' ? { type: 'content_block_delta', delta } : { choices: [{ delta }] })}\n\n`);
+            }
+            res.end(kind === 'anthropic' ? '' : 'data: [DONE]\n\n');
+        });
+    });
+    return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ url: `http://127.0.0.1:${server.address().port}`, close: () => server.close() })));
+}
+
+const thinkingEvents = async (kind, deltas) => {
+    const server = await streaming(kind, deltas);
+    try {
+        const events = [];
+        const provider = kind === 'anthropic' ? make({ kind, url: server.url }) : make({ url: server.url + '/v1' });
+        const result = await assistant.runTask({
+            provider, task: 'explain', message: 'why', history: [],
+            context: { fileName: 'a.tex', document: DOC, selStart: 0, selEnd: 0, cursor: -1, compileError: '' },
+            emit: (e) => events.push(e)
+        });
+        return { result, types: events.map((e) => e.type) };
+    } finally { server.close(); }
+};
+
+test('a model that thinks first is reported thinking once, before its answer', async () => {
+    const separate = await thinkingEvents('openai', [{ reasoning_content: 'Let me ' }, { reasoning_content: 'see.' }, { content: 'It is ' }, { content: 'fine.' }]);
+    assert.deepEqual(separate.types, ['thinking', 'text', 'text']);
+    assert.equal(separate.result.text, 'It is fine.');
+
+    const inline = await thinkingEvents('openai', [{ content: '<think>Let me' }, { content: ' see.</think>' }, { content: 'It is fine.' }]);
+    assert.deepEqual(inline.types, ['thinking', 'text']);
+    assert.equal(inline.result.text, 'It is fine.');
+
+    const claude = await thinkingEvents('anthropic', [{ type: 'thinking_delta', thinking: 'Hmm.' }, { type: 'text_delta', text: 'It is fine.' }]);
+    assert.deepEqual(claude.types, ['thinking', 'text']);
+
+    const plain = await thinkingEvents('openai', [{ content: 'It is fine.' }]);
+    assert.deepEqual(plain.types, ['text']);
+});
+
+const THINKING = { on: { enable_thinking: true, top_k: 20 }, off: { enable_thinking: false } };
+
+test('thinking must be { on, off } request fields', () => {
+    assert.equal(make({ url: 'http://x/v1' }).thinking, null);
+    assert.deepEqual(make({ url: 'http://x/v1', thinking: THINKING }).thinking, THINKING);
+    assert.throws(() => make({ url: 'http://x/v1', thinking: true }), /thinking must be/);
+    assert.throws(() => make({ url: 'http://x/v1', thinking: { on: { model: 'x' } } }), /thinking.on cannot set model/);
+});
+
+// A server that thinks for as long as it is let, unless asked not to think, when it answers at once. Records each request.
+function thinker() {
+    const requests = [];
+    const server = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', (c) => (body += c));
+        req.on('end', () => {
+            const sent = JSON.parse(body);
+            requests.push(sent);
+            res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+            const send = (delta) => res.write(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`);
+            if (sent.enable_thinking === false) {
+                send({ content: 'The answer.' });
+                return res.end('data: [DONE]\n\n');
+            }
+            const pulse = setInterval(() => send({ reasoning_content: 'still thinking. ' }), 50);
+            res.on('close', () => clearInterval(pulse));
+        });
+    });
+    return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({
+        url: `http://127.0.0.1:${server.address().port}/v1`, requests, close: () => { server.closeAllConnections(); server.close(); }
+    })));
+}
+
+const runThinking = (provider, thinkingSeconds, events) => assistant.runTask({
+    provider, task: 'explain', message: 'why', history: [], thinkingSeconds,
+    context: { fileName: 'a.tex', document: DOC, selStart: 0, selEnd: 0, cursor: -1, compileError: '' },
+    emit: (e) => events.push(e)
+});
+
+test('when the time to think runs out, the model is asked to answer from its thinking so far', async () => {
+    const server = await thinker();
+    try {
+        const events = [];
+        const started = Date.now();
+        const result = await runThinking(make({ url: server.url, thinking: THINKING }), 1, events);
+        assert.ok(Date.now() - started < 5000);
+        assert.equal(result.text, 'The answer.');
+        assert.deepEqual(events.map((e) => e.type), ['thinking', 'thinking-over', 'text']);
+        assert.equal(events[0].seconds, 1);
+        assert.equal(server.requests[0].enable_thinking, true);
+        assert.equal(server.requests[0].top_k, 20);
+        assert.equal(server.requests[1].enable_thinking, false);
+        const last = server.requests[1].messages.at(-1).content;
+        assert.match(last, /time to think has run out[\s\S]*<thinking>\nstill thinking\./);
+    } finally { server.close(); }
+});
+
+test('thinking set to 0 asks the model not to think, and a provider without thinking fields is sent neither', async () => {
+    const server = await thinker();
+    try {
+        const events = [];
+        assert.equal((await runThinking(make({ url: server.url, thinking: THINKING }), 0, events)).text, 'The answer.');
+        assert.equal(server.requests[0].enable_thinking, false);
+        assert.deepEqual(events.map((e) => e.type), ['text']);
+    } finally { server.close(); }
+
+    const plain = await mockServer('openai', ['fine']);
+    try {
+        await runThinking(make({ url: plain.url + '/v1' }), 120, []);
+        assert.ok(!('enable_thinking' in plain.requests[0].body));
+    } finally { plain.close(); }
+});
+
+test('Stop during thinking stops it, without asking for an answer', async () => {
+    const server = await thinker();
+    try {
+        const controller = new AbortController();
+        const events = [];
+        const run = assistant.runTask({
+            provider: make({ url: server.url, thinking: THINKING }), task: 'explain', message: 'why', history: [], thinkingSeconds: 1,
+            context: { fileName: 'a.tex', document: DOC, selStart: 0, selEnd: 0, cursor: -1, compileError: '' },
+            emit: (e) => { events.push(e); if (e.type === 'thinking') setTimeout(() => controller.abort(), 100); },
+            signal: controller.signal
+        });
+        await assert.rejects(run);
+        assert.equal(server.requests.length, 1);
+        assert.ok(!events.some((e) => e.type === 'thinking-over'));
+    } finally { server.close(); }
+});
+
 test('a block that does not fit is sent back once, and the retry is used', async () => {
     const mock = await mockServer('openai', [block('Hello wrld.', 'Hello world.'), block('Hello wrold.', 'Hello world.')]);
     try {
@@ -185,6 +376,31 @@ test('history alternates and ends with the new request', () => {
     assert.equal(messages.at(-1).content, 'NOW');
 });
 
+test('the last compile error goes only with requests it matters to', () => {
+    const message = (task, text) => assistant.buildUserMessage({
+        task, message: text, fileName: 'a.tex', document: DOC, selStart: 0, selEnd: 0, cursor: -1,
+        compileError: '! Undefined control sequence.\nl.3 Hello wrold.', budget: 32000
+    });
+    assert.match(message('fix', 'Fix the compile error.'), /<compile_error>/);
+    assert.match(message('explain', 'Explain this.'), /<compile_error>/);
+    for (const text of ['Why did the compile fail?', 'What does this error mean?', 'Why won\'t it compile', 'Any warnings?', 'undefined control sequence?', 'can you fix it']) {
+        assert.match(message('ask', text), /<compile_error>/, text);
+    }
+    for (const text of ['Can you tighten the abstract?', 'Suggest a better title', 'prefix this with a note']) {
+        assert.doesNotMatch(message('ask', text), /<compile_error>/, text);
+    }
+    assert.doesNotMatch(message('rewrite', 'Shorter'), /<compile_error>/);
+});
+
+test('an error left out does not choose which parts of a long file are shown', () => {
+    const document = Array.from({ length: 4000 }, (_, i) => (i === 0 ? '\\documentclass{article}' : i === 4 ? '\\begin{document}' : `line ${i + 1}`)).join('\n');
+    const message = (text) => assistant.buildUserMessage({
+        task: 'ask', message: text, fileName: 'a.tex', document, selStart: 0, selEnd: 0, cursor: -1, compileError: '! Oops.\nl.2500 line', budget: 8000
+    });
+    assert.match(message('What is this error?'), /2500\| line 2500/);
+    assert.doesNotMatch(message('Tighten the abstract'), /2500\| line 2500/);
+});
+
 test('a long document is cut down around the error and the selection', () => {
     const lines = Array.from({ length: 4000 }, (_, i) => (i === 0 ? '\\documentclass{article}' : i === 4 ? '\\begin{document}' : i % 500 === 0 ? `\\section{Part ${i}}` : `line ${i + 1} text text text text`));
     const document = lines.join('\n');
@@ -212,10 +428,6 @@ test('loadProviders: built-ins, file, and mistakes', () => {
         const fromFile = providers.loadProviders({}, { dir });
         assert.equal(fromFile.preferred, 'b');
         assert.equal(fromFile.providers[0].local, true);
-
-        const inContainer = providers.loadProviders({ LOOPBACK_HOST: 'host.docker.internal', MLX_URL: 'http://127.0.0.1:8081/v1' }, { dir: fs.mkdtempSync(path.join(os.tmpdir(), 'none-')) });
-        assert.equal(inContainer.providers[0].url, 'http://host.docker.internal:8081/v1');
-        assert.equal(inContainer.providers[0].local, true);
 
         fs.writeFileSync(path.join(dir, 'providers.json'), JSON.stringify([{ id: 'a', kind: 'openai', model: 'm' }]));
         assert.throws(() => providers.loadProviders({}, { dir }), /url is required/);
@@ -252,6 +464,48 @@ test('listModels reads the model names a server offers', async () => {
     } finally { server.close(); }
     // nothing listening: an empty list, not an error
     assert.deepEqual(await providers.listModels(make({ url: 'http://127.0.0.1:1/v1' })), []);
+});
+
+test('listModels leaves out draft-only MTP repos', async () => {
+    const server = http.createServer((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ data: ['org/Qwen-27B-MTP-4bit', 'org/qwen_mtp', 'mtp-draft', 'org/Qwen-27B-4bit', 'org/smtp-model'].map((id) => ({ id })) }));
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+        const names = await providers.listModels(make({ url: `http://127.0.0.1:${server.address().port}/v1` }));
+        assert.deepEqual(names, ['org/Qwen-27B-4bit', 'org/smtp-model']);
+    } finally { server.close(); }
+});
+
+test('a stream that fails shows the server\'s reason, as a string or an object', async () => {
+    const run = async (error) => {
+        const server = http.createServer((req, res) => {
+            req.resume();
+            res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+            res.end(`data: ${JSON.stringify({ error })}\n\n`);
+        });
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        try {
+            await providers.complete(make({ url: `http://127.0.0.1:${server.address().port}/v1`, label: 'MLX' }), { system: 's', messages: [{ role: 'user', content: 'hi' }] });
+            return '';
+        } catch (e) { return e.message; } finally { server.close(); }
+    };
+    assert.equal(await run("'Draft' object has no attribute 'language_model'"), "MLX: 'Draft' object has no attribute 'language_model'.");
+    assert.equal(await run({ message: 'overloaded' }), 'MLX: overloaded.');
+    assert.equal(await run({ code: 500 }), 'MLX: the stream failed.');
+});
+
+test('an HTTP error shows a reason sent as a plain string', async () => {
+    const server = http.createServer((req, res) => {
+        req.resume();
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'no such model' }));
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+        await assert.rejects(providers.complete(make({ url: `http://127.0.0.1:${server.address().port}/v1`, label: 'MLX' }), { system: 's', messages: [{ role: 'user', content: 'hi' }] }), /MLX failed \(HTTP 500\): no such model/);
+    } finally { server.close(); }
 });
 
 test('an empty answer says why', async () => {

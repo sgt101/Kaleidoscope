@@ -57,6 +57,40 @@ test('locate tolerates trailing spaces and CRLF', () => {
     assert.equal(doc.slice(where.start, where.end), 'a  \r\nb\t');
 });
 
+test('the selection picks between several matches', () => {
+    const doc = 'We see the results here.\nLater, the results again.\n';
+    const second = doc.lastIndexOf('the results');
+    assert.equal(E.locate(doc, 'the results').error, 'ambiguous');
+    assert.deepEqual(E.locate(doc, 'the results', { near: { start: second, end: second + 11 } }), { start: second, end: second + 11 });
+    assert.equal(E.locate(doc, 'the results', { near: { start: 0, end: doc.length } }).error, 'ambiguous');
+    assert.deepEqual(E.check(doc, block('the results', 'our findings'), { near: { start: second, end: second + 11 } }), []);
+});
+
+test('locate forgives retyped quotes, dashes, spaces and accents, and replaces the file\'s own text', () => {
+    const found = (doc, search) => {
+        const where = E.locate(doc, search);
+        return where.error ? where.error : doc.slice(where.start, where.end);
+    };
+    assert.equal(found('Kaleidoscope’s design is simple.', "Kaleidoscope's design"), 'Kaleidoscope’s design');
+    assert.equal(found('He said “hello” twice.', 'He said "hello"'), 'He said “hello”');
+    assert.equal(found('pages 10–20 of it', 'pages 10-20'), 'pages 10–20');
+    assert.equal(found('pages 10--20 of it', 'pages 10-20'), 'pages 10--20');
+    assert.equal(found('Figure\u00a01 shows it', 'Figure 1 shows'), 'Figure\u00a01 shows');
+    assert.equal(found('caf\u00e9 au lait', 'cafe\u0301 au'), 'caf\u00e9 au');
+    assert.equal(found('  \\item one\n  \\item two\n', '\\item one\n\\item two'), '\\item one\n  \\item two');
+    assert.equal(found('\t\\item one\n\t\\item two\n', '    \\item one\n    \\item two'), '\\item one\n\t\\item two');
+    assert.equal(found('The quick brown\nfox jumps over.\n', 'The quick brown fox jumps over.'), 'The quick brown\nfox jumps over.');
+    assert.equal(found('alpha\nbeta\n\ngamma\n', 'beta\n\n\n'), 'beta');
+    assert.equal(found('first words here  \nsecond line\n', 'words here\nsecond'), 'words here  \nsecond');
+});
+
+test('a forgiving match must still be the only one, and made-up text still fails', () => {
+    assert.equal(E.locate('it’s here\nit\'s there and it’s\n', "it's  her").error, undefined);
+    assert.equal(E.locate('it’s one\nit’s two\n', "it's").error, 'ambiguous');
+    assert.equal(E.locate('alpha\n', 'this is not in the file').error, 'missing');
+    assert.equal(E.locate('alpha\n', '  \n ').error, 'empty');
+});
+
 test('apply returns the new text and the replaced range', () => {
     const result = E.apply('hello world', { search: 'world', replace: 'there' });
     assert.equal(result.text, 'hello there');
@@ -70,6 +104,13 @@ test('check applies blocks in turn and lists those that fail', () => {
     assert.equal(failures.length, 1);
     assert.equal(failures[0].index, 2);
     assert.equal(E.describe(failures[0]), 'does not match the file text');
+});
+
+test('a block that fits the original file is not ruled out by an earlier block', () => {
+    assert.deepEqual(E.check('x = 1\ny = 2\n', [block('x = 1', 'y = 2\nx = 1'), block('y = 2', 'y = 3')].join('\n')), []);
+    assert.deepEqual(E.check('one\ntwo\nthree\n', [block('one', 'ONE'), block('one\ntwo', 'both')].join('\n')), []);
+    const failures = E.check('one\n', [block('one', 'ONE'), block('nope', 'x')].join('\n'));
+    assert.deepEqual(failures.map((f) => [f.index, f.error]), [[1, 'missing']]);
 });
 
 test('diffLines drops the lines both sides share', () => {

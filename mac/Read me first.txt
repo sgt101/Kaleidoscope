@@ -1,0 +1,34 @@
+Kaleidoscope: a LaTeX editor that runs on your Mac
+==================================================
+
+Installing
+----------
+1. Drag Kaleidoscope into the Applications folder next to it.
+2. Install Docker Desktop (https://www.docker.com/products/docker-desktop/) if you do not have it, and start it once.
+3. For the assistant, install Node.js 20 or later (https://nodejs.org). Without it the editor works, but the assistant
+   does not.
+
+Opening it
+----------
+Open Kaleidoscope from Applications. A Terminal window opens and starts it; your browser then opens the editor at
+http://localhost:3000.
+
+- The first time, it asks a few questions about which models the assistant should use, then builds the editor's
+  image. That downloads TeX Live (about 2 GB) and takes a few minutes. Later starts take seconds.
+- Your documents are in Documents/Kaleidoscope in your home folder. That is the only folder the editor can see.
+  It starts with an example: open test.tex, choose LuaLaTeX and press Compile PDF.
+- To stop Kaleidoscope, close its Terminal window (or press Ctrl+C in it).
+
+If macOS says Kaleidoscope cannot be opened
+-------------------------------------------
+Unless this copy was signed and notarised, macOS stops it the first time. Open System Settings, then Privacy &
+Security, scroll down to the message about Kaleidoscope, and click Open Anyway. You only need to do this once.
+
+The first time, macOS may also ask whether Kaleidoscope may use a key from your Keychain (for an assistant that uses
+Claude or OpenAI): choose Always Allow.
+
+Removing it
+-----------
+Drag Kaleidoscope from Applications to the Bin. To free the disk space its image uses, run in Terminal:
+    docker rm -f kaleidoscope; docker rmi kaleidoscope; docker volume rm kaleidoscope-cache
+Your documents stay in Documents/Kaleidoscope, and the assistant's settings in ~/.config/kaleidoscope.

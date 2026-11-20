@@ -80,42 +80,93 @@
 
     const edits = (reply) => parse(reply).segments.filter((segment) => segment.type === 'edit');
 
-    // Where `search` occurs in `doc`: { start, end } when it occurs exactly once, otherwise { error, count }. An exact
-    // match is tried first; failing that, one that differs only in trailing spaces and line endings.
-    function locate(doc, search) {
-        if (!search || !search.trim()) return { error: 'empty', count: 0 };
-        let count = 0;
-        let first = -1;
-        for (let at = doc.indexOf(search); at !== -1; at = doc.indexOf(search, at + 1)) {
-            if (count++ === 0) first = at;
-        }
-        if (count === 1) return { start: first, end: first + search.length };
-        if (count > 1) return { error: 'ambiguous', count };
+    function exactHits(doc, search) {
+        const hits = [];
+        for (let at = doc.indexOf(search); at !== -1; at = doc.indexOf(search, at + 1)) hits.push({ start: at, end: at + search.length });
+        return hits;
+    }
 
+    // Whole lines that differ only in trailing spaces and line endings.
+    function lineHits(doc, search) {
         const wanted = search.replace(/\r/g, '').split('\n').map((line) => line.replace(/\s+$/, ''));
         const starts = [];
         let offset = 0;
-        const have = doc.split('\n').map((line) => {
+        const raw = doc.split('\n');
+        const have = raw.map((line) => {
             starts.push(offset);
             offset += line.length + 1;
             return line.replace(/\r$/, '').replace(/\s+$/, '');
         });
         const hits = [];
         for (let i = 0; i + wanted.length <= have.length; i++) {
-            if (wanted.every((line, k) => have[i + k] === line)) hits.push(i);
+            if (!wanted.every((line, k) => have[i + k] === line)) continue;
+            const last = i + wanted.length - 1;
+            hits.push({ start: starts[i], end: starts[last] + raw[last].replace(/\r$/, '').length });
         }
-        if (hits.length === 1) {
-            const last = hits[0] + wanted.length - 1;
-            const rawLast = doc.split('\n')[last];
-            return { start: starts[hits[0]], end: starts[last] + rawLast.replace(/\r$/, '').length };
+        return hits;
+    }
+
+    // Text reduced to what a model copies reliably: every run of white space (tabs, line breaks, non-breaking spaces) is one
+    // space, curly quotes are straight, every run of dashes is one hyphen, and accents are dropped. starts[i] and ends[i] are
+    // the part of `text` that character i of the result came from.
+    function fold(text) {
+        const out = [];
+        const starts = [];
+        const ends = [];
+        let at = 0;
+        for (const ch of text) {
+            const from = at;
+            at += ch.length;
+            let plain = ch.normalize('NFD').replace(/\p{M}/gu, '');
+            if (/\s/.test(ch)) plain = ' ';
+            else if (/[‘’‚‛′]/.test(ch)) plain = "'";
+            else if (/[“”„‟″]/.test(ch)) plain = '"';
+            else if (/[‐‑‒–—―−]/.test(ch)) plain = '-';
+            const last = out[out.length - 1];
+            if (!plain || ((plain === ' ' || plain === '-') && plain === last)) {
+                if (out.length) ends[ends.length - 1] = at; // a mark or a longer run: part of the character before
+                continue;
+            }
+            for (const c of plain) {
+                out.push(c);
+                starts.push(from);
+                ends.push(at);
+            }
         }
-        if (hits.length > 1) return { error: 'ambiguous', count: hits.length };
-        return { error: 'missing', count: 0 };
+        return { text: out.join(''), starts, ends };
+    }
+
+    // Places that differ only in what fold() removes. The replaced range is the file's own text.
+    function looseHits(doc, search) {
+        const wanted = fold(search).text.trim();
+        if (!wanted) return [];
+        const folded = fold(doc);
+        const hits = [];
+        for (let at = folded.text.indexOf(wanted); at !== -1; at = folded.text.indexOf(wanted, at + 1)) {
+            hits.push({ start: folded.starts[at], end: folded.ends[at + wanted.length - 1] });
+        }
+        return hits;
+    }
+
+    // Where `search` occurs in `doc`: { start, end } when it occurs exactly once, otherwise { error, count }. An exact match
+    // is tried first, then ones that differ only in trailing spaces and line endings, then ones that differ in spacing,
+    // quotes, dashes or accents. `near` ({ start, end }: the user's selection) picks between several places.
+    function locate(doc, search, { near } = {}) {
+        if (!search || !search.trim()) return { error: 'empty', count: 0 };
+        let hits = exactHits(doc, search);
+        if (!hits.length) hits = lineHits(doc, search);
+        if (!hits.length) hits = looseHits(doc, search);
+        if (hits.length > 1 && near) {
+            const inside = hits.filter((hit) => hit.start < near.end && hit.end > near.start);
+            if (inside.length === 1) hits = inside;
+        }
+        if (hits.length === 1) return hits[0];
+        return hits.length ? { error: 'ambiguous', count: hits.length } : { error: 'missing', count: 0 };
     }
 
     // Apply one edit: { text, start, end } with the new document and the range the replacement occupies, or { error, count }.
-    function apply(doc, edit) {
-        const where = locate(doc, edit.search);
+    function apply(doc, edit, options) {
+        const where = locate(doc, edit.search, options);
         if (where.error) return where;
         return {
             text: doc.slice(0, where.start) + edit.replace + doc.slice(where.end),
@@ -124,15 +175,20 @@
         };
     }
 
-    // The blocks of `reply` that do not fit `doc`, each applied in turn to the result of the one before:
-    // [{ index, edit, error, count }].
-    function check(doc, reply) {
+    // The blocks of `reply` that do not fit `doc`: [{ index, edit, error, count }]. Each is tried on the result of the ones
+    // before it, and then on `doc` itself: a model writes its blocks from the file it was shown, so an earlier block getting
+    // in the way is no reason to rule one out. The user may not accept that earlier block.
+    function check(doc, reply, options) {
         const failures = [];
         let current = doc;
         edits(reply).forEach((edit, index) => {
-            const result = apply(current, edit);
-            if (result.error) failures.push({ index, edit, error: result.error, count: result.count });
-            else current = result.text;
+            const result = apply(current, edit, options);
+            if (!result.error) {
+                current = result.text;
+                return;
+            }
+            const original = locate(doc, edit.search, options);
+            if (original.error) failures.push({ index, edit, error: original.error, count: original.count });
         });
         return failures;
     }

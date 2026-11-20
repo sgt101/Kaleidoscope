@@ -6,11 +6,9 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     environment:
-      - MLX_URL=${MLX_URL:-http://host.docker.internal:8081/v1}
-      - MLX_MODEL=${MLX_MODEL:-default_model}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_MODEL=${OPENAI_MODEL:-}
+      # The assistant goes through the bridge: run `node bridge.js` on this machine, with the same BRIDGE_TOKEN (see .env.example).
+      - BRIDGE_URL=${BRIDGE_URL:-http://host.docker.internal:8793}
+      - BRIDGE_TOKEN=${BRIDGE_TOKEN:-}
       - TRIFLE_TOKEN=${TRIFLE_TOKEN:-}
       - TRIFLE_URL=${TRIFLE_URL:-http://host.docker.internal:8792}
       - NODE_ENV=production

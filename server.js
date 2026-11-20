@@ -1,9 +1,11 @@
 const express = require('express');
 const crypto = require('crypto');
 const { TrifleClient, loadConfig } = require('./trifle');
-const { loadProviders, probe, listModels } = require('./providers');
+const { loadProviders, createStatus, fromBridge } = require('./providers');
 const { runTask } = require('./assistant');
 const { describe: describeEdit } = require('./public/edits');
+const { createHistory, HistoryError } = require('./history');
+const { createSync } = require('./synctex');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -30,6 +32,7 @@ const ENGINES = {
 };
 const BIBTEX = process.env.BIBTEX_PATH || 'bibtex';
 const BIBER = process.env.BIBER_PATH || 'biber';
+const SYNCTEX = process.env.SYNCTEX_PATH || 'synctex';
 // A GUI-launched Node often lacks the TeX directory on PATH (MacTeX installs to /Library/TeX/texbin).
 const TEX_DIRS = ['/Library/TeX/texbin', '/opt/homebrew/bin', '/usr/local/bin'];
 const TOOL_PATH = [process.env.PATH, ...TEX_DIRS.filter((dir) => fs.existsSync(dir))].filter(Boolean).join(path.delimiter);
@@ -199,6 +202,7 @@ app.put('/api/fs/file', (req, res, next) => {
         if (!isEditable(file)) throw new FsError(415, 'Only text files (' + [...EDITABLE_EXTS].join(', ') + ') can be saved');
         if (fs.existsSync(file) && !fs.statSync(file).isFile()) throw new FsError(400, 'Not a file');
         fs.writeFileSync(file, content);
+        history.saved(relativeToWorkspace(file)); // recorded in the background: a history failure never fails a Save
         res.json({ path: relativeToWorkspace(file), saved: true });
     } catch (error) {
         next(error);
@@ -222,8 +226,9 @@ app.post('/api/compile', async (req, res) => {
 
     activeCompiles++;
     try {
-        const { pdf, notes, engine } = await compileLaTeXToPDF(texContent, mainPath, overrides, requestedEngine);
+        const { pdf, notes, engine, sync: syncId } = await compileLaTeXToPDF(texContent, mainPath, overrides, requestedEngine);
         res.setHeader('X-Compile-Engine', engine);
+        if (syncId) res.setHeader('X-Compile-Sync', syncId);
         res.setHeader('Content-Type', 'application/pdf');
         if (notes.length) res.setHeader('X-Compile-Notes', encodeURIComponent(notes.join('; ')));
         res.send(pdf);
@@ -242,57 +247,49 @@ app.post('/api/compile', async (req, res) => {
 // Task oriented: the editor builds the context (assistant.js), a model provider answers (providers.js), and a proposed
 // change comes back as edit blocks that the browser shows as a diff. Nothing here writes to a file.
 const trifle = new TrifleClient(loadConfig(), { timeoutMs: Number(process.env.TRIFLE_TIMEOUT_MS) || 300000 });
-let providerConfig;
-try {
-    providerConfig = loadProviders(process.env, { trifleEnabled: trifle.enabled });
-} catch (error) {
-    console.error('Providers:', error.message);
-    providerConfig = { providers: [], preferred: '', file: null, error: error.message };
+const BRIDGED = Boolean(process.env.BRIDGE_URL); // the providers and their keys are on the machine outside the container
+let providerConfig = { providers: [], preferred: '', file: null };
+if (!BRIDGED) {
+    try {
+        providerConfig = loadProviders(process.env, { trifleEnabled: trifle.enabled });
+    } catch (error) {
+        console.error('Providers:', error.message);
+        providerConfig = { ...providerConfig, error: error.message };
+    }
 }
-const providerById = new Map(providerConfig.providers.map((provider) => [provider.id, provider]));
+
+// { providers, preferred, error }. The bridge is asked each time, so that it can start, stop or change while the editor runs.
+async function currentProviders() {
+    if (!BRIDGED) return providerConfig;
+    const config = await fromBridge();
+    if (!trifle.enabled || config.providers.some((provider) => provider.kind === 'trifle')) return config;
+    return { ...config, providers: [...config.providers, { id: 'trifle', label: 'Trifle', kind: 'trifle', local: true, model: '' }] };
+}
 let assistantBusy = false;
 
-// Probing a local model server on every page load is cheap, but not on every keystroke of a script: remember briefly.
-const probeCache = new Map();
-async function providerState(provider) {
-    const cached = probeCache.get(provider.id);
-    if (cached && Date.now() - cached.at < 3000) return cached.value;
-    const value = await probe(provider, { trifle });
-    probeCache.set(provider.id, { at: Date.now(), value });
-    return value;
-}
-
-// The models a provider offers. A local server is asked often (models come and go as the user downloads them); a hosted
-// one costs a network call, so its list is kept longer.
-const modelCache = new Map();
-async function providerModels(provider, ready) {
-    if (!ready) return [];
-    const cached = modelCache.get(provider.id);
-    if (cached && Date.now() - cached.at < (provider.local ? 3000 : 60000)) return cached.value;
-    const value = await listModels(provider);
-    modelCache.set(provider.id, { at: Date.now(), value });
-    return value;
-}
+const statusOf = createStatus({ trifle });
 
 app.get('/api/assistant', async (req, res) => {
-    const states = await Promise.all(providerConfig.providers.map(providerState));
-    const models = await Promise.all(providerConfig.providers.map((p, i) => providerModels(p, states[i].ready)));
-    const list = providerConfig.providers.map((p, i) => ({
-        id: p.id, label: p.label, kind: p.kind, model: p.model, models: models[i], local: p.local, host: p.host,
-        ready: states[i].ready, detail: states[i].detail
-    }));
-    const preferred = list.find((p) => p.id === providerConfig.preferred && p.ready);
+    const config = await currentProviders();
+    const list = await Promise.all(config.providers.map(async (p) => ({
+        id: p.id, label: p.label, kind: p.kind, model: p.model, local: p.local, host: p.host, thinking: Boolean(p.thinking),
+        ...(p.status || await statusOf(p))
+    })));
+    const preferred = list.find((p) => p.id === config.preferred && p.ready);
     const chosen = preferred || list.find((p) => p.ready && p.local) || list.find((p) => p.ready) || list[0];
-    res.json({ providers: list, default: chosen ? chosen.id : '', error: providerConfig.error || '' });
+    res.json({ providers: list, default: chosen ? chosen.id : '', error: config.error || '' });
 });
 
-// Streams newline-delimited JSON: { type: 'text', text } as the answer arrives, { type: 'reset', text } when it is
-// replaced, { type: 'retry', reason } when an edit did not fit and the model is asked again, then { type: 'done', text,
+// Streams newline-delimited JSON: { type: 'thinking', seconds } if the model thinks before answering (and
+// { type: 'thinking-over' } if its time to think runs out), { type: 'text', text } as the
+// answer arrives, { type: 'reset', text } when it is replaced, { type: 'retry', reason } when an edit did not fit and the
+// model is asked again, then { type: 'done', text,
 // truncated, failures } or { type: 'error', message }.
 app.post('/api/chat', async (req, res) => {
     const body = req.body || {};
-    let provider = providerById.get(body.provider);
-    if (!provider) return res.status(400).json({ error: 'Unknown provider', details: 'Choose a provider from the list above the chat.' });
+    const config = await currentProviders();
+    let provider = config.providers.find((candidate) => candidate.id === body.provider);
+    if (!provider) return res.status(400).json({ error: 'Unknown provider', details: config.error || 'Choose a provider from the list above the chat.' });
     // The model picked in the editor replaces the provider's configured one for this question only.
     if (body.model !== undefined && body.model !== '') {
         if (typeof body.model !== 'string' || body.model.length > 200 || /[\u0000-\u001f]/.test(body.model)) {
@@ -339,6 +336,7 @@ app.post('/api/chat', async (req, res) => {
     try {
         const result = await runTask({
             provider, task: body.task, message: body.message, context, history: body.history,
+            thinkingSeconds: Number.isInteger(body.thinkingSeconds) ? body.thinkingSeconds : undefined,
             signal: controller.signal, emit: send, trifle
         });
         send({
@@ -405,7 +403,7 @@ function runTool(command, args, cwd, timeoutMs = 30000) {
 }
 
 const runEngine = (engine, cwd) => runTool(ENGINES[engine].command,
-    ['-interaction=nonstopmode', '-halt-on-error', '-no-shell-escape', 'document.tex'], cwd, ENGINES[engine].timeoutMs);
+    ['-interaction=nonstopmode', '-halt-on-error', '-no-shell-escape', '-synctex=1', 'document.tex'], cwd, ENGINES[engine].timeoutMs);
 
 // Which engine to use. An explicit choice wins; "auto" reads a magic comment ("% !TEX program = lualatex",
 // as written by TeXShop, TeXworks and VS Code) in the first lines, then looks for Lua-only or OpenType-font code.
@@ -499,11 +497,13 @@ async function compileLaTeXToPDF(texContent, mainPath, overrides, requestedEngin
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'latex-'));
     const pdfFile = path.join(tempDir, 'document.pdf');
     const notes = [];
+    let mainRel = null;
 
     try {
         if (typeof mainPath === 'string' && mainPath) {
             const mainAbs = resolveInWorkspace(mainPath);
             if (path.extname(mainAbs).toLowerCase() !== '.tex') throw new FsError(400, 'Only .tex files can be compiled');
+            mainRel = relativeToWorkspace(mainAbs);
             copyProject(path.dirname(mainAbs), tempDir, { files: 0, bytes: 0 });
             applyOverrides(overrides, path.posix.dirname(relativeToWorkspace(mainAbs)), tempDir);
         }
@@ -545,17 +545,86 @@ async function compileLaTeXToPDF(texContent, mainPath, overrides, requestedEngin
             rerun = needsRerun(pass.output);
         }
 
-        return { pdf: fs.readFileSync(pdfFile), notes, engine };
+        return { pdf: fs.readFileSync(pdfFile), notes, engine, sync: rememberSync(tempDir, mainRel) };
     } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
     }
 }
 
+// ---- Version history (history.js, docs/version-control.md) ----
+// Every Save becomes a version in <workspace>/.kaleidoscope/history.git, holding the same kinds of files a compile
+// copies. The browser can read versions; it cannot name a path outside the workspace or a Git option.
+const history = createHistory({
+    workspace: WORKSPACE,
+    dir: process.env.HISTORY_DIR || undefined,
+    enabled: process.env.HISTORY !== 'off',
+    git: process.env.GIT_PATH || 'git',
+    include: (name) => PROJECT_EXTS.has(path.extname(name).toLowerCase()),
+    skipDirs: HIDDEN_DIRS
+});
+const historyReady = history.start();
+
+app.get('/api/history/status', async (req, res, next) => {
+    try {
+        res.json(await history.status());
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get('/api/history/log', async (req, res, next) => {
+    try {
+        res.json(await history.log({ path: req.query.path, limit: req.query.limit, before: req.query.before }));
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get('/api/history/file', async (req, res, next) => {
+    try {
+        res.json(await history.file({ path: req.query.path, version: req.query.version }));
+    } catch (error) {
+        next(error);
+    }
+});
+
+// ---- Moving between the source and the PDF (synctex.js) ----
+const sync = createSync({ run: (args, cwd) => runTool(SYNCTEX, args, cwd, 5000) });
+
+// The PDF is what was asked for; without the sync record it is still a good answer.
+function rememberSync(folder, mainPath) {
+    try {
+        return sync.remember({ folder, mainPath });
+    } catch (error) {
+        console.warn('SyncTeX:', error.message);
+        return null;
+    }
+}
+
+app.get('/api/sync/view', async (req, res, next) => {
+    try {
+        res.json(await sync.view({ id: req.query.id, path: req.query.path, line: req.query.line, endLine: req.query.endLine }));
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get('/api/sync/files', (req, res) => res.json(sync.files({ id: req.query.id })));
+
+app.get('/api/sync/edit', async (req, res, next) => {
+    try {
+        res.json(await sync.edit({ id: req.query.id, page: req.query.page, x: req.query.x, y: req.query.y }));
+    } catch (error) {
+        next(error);
+    }
+});
+
 // Error handling
 app.use((err, req, res, next) => {
-    if (!(err instanceof FsError)) console.error('Server error:', err.message);
+    const known = err instanceof FsError || err instanceof HistoryError;
+    if (!known) console.error('Server error:', err.message);
     res.status(err.status || 500).json({
-        error: err instanceof FsError ? err.message : 'Internal server error',
+        error: known ? err.message : 'Internal server error',
         message: err.message
     });
 });
@@ -564,6 +633,7 @@ app.listen(PORT, HOST, () => {
     console.log(`LaTeX Editor running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     console.log('\nConfiguration:');
     console.log(`- Listening on: ${HOST}`);
+    if (BRIDGED) console.log(`- Assistant: through the bridge at ${process.env.BRIDGE_URL}, which holds the providers and their keys`);
     for (const provider of providerConfig.providers) {
         console.log(`- Assistant ${provider.id}: ${provider.kind} ${provider.model || ''} ${provider.url || ''}${provider.local ? '' : ' (sends the open file to ' + (provider.host || 'a remote service') + ')'}`);
     }
@@ -571,5 +641,11 @@ app.listen(PORT, HOST, () => {
     for (const [name, engine] of Object.entries(ENGINES)) {
         console.log(`- ${name}: ${findExecutable(engine.command) || 'NOT FOUND (install a TeX distribution or set ' + engine.env + ')'}`);
     }
+    console.log(`- synctex: ${findExecutable(SYNCTEX) || 'NOT FOUND (the source and the PDF will not follow each other; set SYNCTEX_PATH)'}`);
     console.log(`- Workspace: ${WORKSPACE || 'none (file browser disabled)'}`);
+    historyReady.then((info) => {
+        console.log(info.enabled
+            ? `- History: ${history.dir} (git ${info.git}, ${info.versions} version${info.versions === 1 ? '' : 's'})${info.error ? ' — ' + info.error : ''}`
+            : `- History: off (${info.reason})`);
+    }, (error) => console.log(`- History: ${error.message}`));
 });

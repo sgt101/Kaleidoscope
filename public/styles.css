@@ -58,6 +58,41 @@ body.resizing.vertical {
     cursor: row-resize;
 }
 
+/* The file list and the chat can be hidden, leaving the editor and the preview */
+body.hide-sidebar .sidebar,
+body.hide-sidebar #splitSidebar,
+body.hide-chat .chat-container,
+body.hide-chat #splitChat {
+    display: none;
+}
+
+.pane-toggle {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 6px;
+    color: #b4b4b4;
+}
+
+.pane-toggle svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.3;
+    stroke-linejoin: round;
+}
+
+/* Both at the left of the editor's toolbar, which is cut off at the right when the editor is narrow */
+#toggleChatBtn {
+    margin-right: 8px;
+}
+
+/* A hidden pane: its button is filled in, so that the way back is easy to spot */
+.pane-toggle[aria-expanded="false"] {
+    color: #e0e0e0;
+    background-color: #3e3e42;
+}
+
 /* Sidebar */
 .sidebar {
     width: var(--sidebar-w);
@@ -227,17 +262,65 @@ body.resizing.vertical {
     background-color: #3e3e42;
 }
 
-.editor-textarea {
+.editor-body {
+    --line-numbers: calc(var(--line-digits, 2) * 1ch + 12px); /* ch is the width of a digit, in each element's own font */
+    position: relative;
     flex: 1;
-    background-color: #1e1e1e;
-    color: #d4d4d4;
-    border: none;
-    padding: 15px;
+    min-height: 0;
+    display: flex;
+}
+
+.editor-textarea,
+.editor-lines {
     font-family: 'Courier New', monospace;
     font-size: var(--editor-font);
     line-height: 1.5;
+    tab-size: 4;
+}
+
+.editor-textarea {
+    flex: 1;
+    min-width: 0;
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+    border: none;
+    padding: 15px 15px 15px calc(var(--line-numbers) + 15px);
     resize: none;
     outline: none;
+}
+
+/* Laid over the editor and wrapping exactly as it does: only the numbers show, and clicks go through to the text. */
+.editor-lines {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    overflow: hidden;
+    padding: 15px 0 80px; /* more than the editor's, so it can always scroll as far */
+    box-sizing: border-box;
+    color: transparent;
+    counter-reset: line;
+    pointer-events: none;
+    user-select: none;
+}
+
+.editor-line {
+    position: relative;
+    min-height: calc(var(--editor-font) * 1.5);
+    padding: 0 15px 0 calc(var(--line-numbers) + 15px);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    counter-increment: line;
+}
+
+.editor-line::before {
+    content: counter(line);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: var(--line-numbers);
+    text-align: right;
+    color: #858585;
 }
 
 .editor-textarea::selection {
@@ -319,16 +402,327 @@ body.resizing.vertical {
     border-bottom: 1px solid #3e3e42;
 }
 
-.preview-header h3 {
-    font-size: 13px;
-    font-weight: 600;
-}
-
-.preview-header .zoom-group {
+.preview-header .zoom-group,
+.preview-header #historyScope {
     margin-left: auto;
 }
 
+/* Preview / History tabs: the pane's data-tab says which one shows */
+.pane-tabs {
+    display: flex;
+    gap: 2px;
+}
+
+.pane-tab {
+    background: none;
+    border: none;
+    border-radius: 3px;
+    color: #9d9d9d;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 4px 8px;
+}
+
+.pane-tab:hover {
+    background-color: #3e3e42;
+}
+
+.pane-tab.active {
+    color: #e0e0e0;
+    box-shadow: inset 0 -2px 0 #0e639c;
+}
+
+.preview-pane[data-tab="history"] .preview-only,
+.preview-pane[data-tab="history"] .pdf-preview,
+.preview-pane:not([data-tab="history"]) .history-only,
+.preview-pane:not([data-tab="history"]) .history-panel {
+    display: none;
+}
+
+/* History */
+.history-panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    font-size: 12px;
+}
+
+.history-list {
+    flex: 0 1 auto;
+    max-height: 38%;
+    min-height: 60px;
+    overflow-y: auto;
+    padding: 4px 6px;
+    border-bottom: 1px solid #3e3e42;
+}
+
+.history-day {
+    padding: 6px 6px 2px;
+    color: #8a8a8a;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.history-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+    padding: 4px 6px;
+    background: none;
+    border: none;
+    border-radius: 3px;
+    color: #e0e0e0;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.history-row:hover,
+.history-row:focus-visible {
+    background-color: #3e3e42;
+    outline: none;
+}
+
+.history-row.selected {
+    background-color: #04395e;
+}
+
+.history-time {
+    flex-shrink: 0;
+    color: #9d9d9d;
+    font-variant-numeric: tabular-nums;
+}
+
+.history-subject {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.history-badge,
+.history-files {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: #9d9d9d;
+}
+
+.history-badge {
+    padding: 0 5px;
+    border: 1px solid #4a4a4f;
+    border-radius: 8px;
+    color: #e2c08d;
+}
+
+.history-more {
+    margin: 4px 6px;
+    background: none;
+    border: none;
+    color: #75beff;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.history-empty {
+    padding: 14px 8px;
+    color: #8a8a8a;
+    line-height: 1.5;
+}
+
+.history-detail {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.history-title {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.history-when {
+    color: #8a8a8a;
+    font-size: 11px;
+    margin-top: 2px;
+}
+
+.history-changed {
+    line-height: 1.9;
+    color: #8a8a8a;
+}
+
+.history-chip {
+    margin-right: 4px;
+    padding: 1px 6px;
+    background-color: #2d2d30;
+    border: 1px solid #3e3e42;
+    border-radius: 3px;
+    color: #c8c8c8;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.history-chip:hover:not(:disabled) {
+    background-color: #3e3e42;
+}
+
+.history-chip.added {
+    color: #a6dfa2;
+}
+
+.history-chip.deleted {
+    color: #f1a99b;
+    text-decoration: line-through;
+}
+
+.history-chip:disabled {
+    opacity: 1;
+    cursor: default;
+}
+
+.history-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.history-modes {
+    display: flex;
+    border: 1px solid #3e3e42;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.history-mode {
+    background: none;
+    border: none;
+    color: #9d9d9d;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 4px 9px;
+}
+
+.history-mode + .history-mode {
+    border-left: 1px solid #3e3e42;
+}
+
+.history-mode.active {
+    background-color: #3a3d41;
+    color: #e0e0e0;
+}
+
+.history-restore {
+    margin: 0 0 0 auto;
+}
+
+.history-summary {
+    color: #9d9d9d;
+}
+
+.history-note {
+    color: #89d185;
+    line-height: 1.4;
+}
+
+.history-status {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    border-top: 1px solid #3e3e42;
+    color: #8a8a8a;
+    font-size: 11px;
+    min-height: 22px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.history-status.warn {
+    color: #e2c08d;
+}
+
+.history-status.error {
+    color: #f48771;
+    white-space: normal;
+}
+
+.diff-view {
+    font-family: Menlo, Monaco, 'Courier New', monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    border: 1px solid #3e3e42;
+    border-radius: 3px;
+    background-color: #1a1a1a;
+}
+
+.diff-view:empty {
+    display: none;
+}
+
+.diff-row {
+    display: flex;
+    gap: 8px;
+    padding: 0 6px 0 0;
+}
+
+.diff-ln {
+    flex: 0 0 38px;
+    text-align: right;
+    color: #5a5a5a;
+    user-select: none;
+}
+
+.diff-text {
+    flex: 1;
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: #c8c8c8;
+}
+
+.diff-row.change {
+    background-color: rgba(255, 255, 255, 0.03);
+}
+
+.diff-row.del {
+    background-color: rgba(244, 135, 113, 0.1);
+}
+
+.diff-row.ins {
+    background-color: rgba(137, 209, 133, 0.1);
+}
+
+.diff-row.skip {
+    display: block;
+    padding: 2px 8px 2px 46px;
+    color: #6f6f6f;
+    background-color: #222;
+    font-style: italic;
+}
+
+.diff-text del {
+    background-color: rgba(244, 135, 113, 0.25);
+    color: #f1a99b;
+    text-decoration: line-through;
+}
+
+.diff-text ins {
+    background-color: rgba(137, 209, 133, 0.25);
+    color: #a6dfa2;
+    text-decoration: none;
+}
+
 .pdf-preview {
+    position: relative;
     flex: 1;
     overflow: auto;
     scrollbar-gutter: stable;
@@ -342,6 +736,24 @@ body.resizing.vertical {
     flex: none;
     margin: 0 auto 10px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.pdf-preview.syncable canvas {
+    cursor: pointer;
+}
+
+/* Where the selected text comes out */
+.sync-mark {
+    position: absolute;
+    background-color: rgba(255, 196, 0, 0.4);
+    border-radius: 2px;
+    pointer-events: none;
+    animation: sync-fade 2.5s ease-in forwards;
+}
+
+@keyframes sync-fade {
+    from, 60% { opacity: 1; }
+    to { opacity: 0; }
 }
 
 .pdf-preview .error {
@@ -563,6 +975,88 @@ button:disabled {
     gap: 8px;
     padding: 10px 15px;
     border-top: 1px solid #3e3e42;
+}
+
+/* The thinking dial, left of the chat box */
+.think-dial {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 44px;
+    cursor: ns-resize;
+    user-select: none;
+    touch-action: none;
+    border-radius: 4px;
+    outline: none;
+}
+
+.think-dial[hidden] {
+    display: none;
+}
+
+.think-dial:focus-visible {
+    box-shadow: 0 0 0 1px #0e639c;
+}
+
+.think-dial svg {
+    width: 34px;
+    height: 34px;
+    display: block;
+}
+
+.think-dial-track,
+.think-dial-fill {
+    fill: none;
+    stroke-width: 3;
+    stroke-linecap: round;
+}
+
+.think-dial-track {
+    stroke: #3e3e42;
+}
+
+.think-dial-fill {
+    stroke: #3794ff;
+    stroke-dasharray: 0 100;
+}
+
+.think-dial.off .think-dial-fill {
+    stroke: transparent;
+}
+
+.think-dial-knob {
+    fill: #2d2d30;
+    stroke: #555;
+    stroke-width: 1;
+}
+
+.think-dial:hover .think-dial-knob,
+.think-dial:focus-visible .think-dial-knob {
+    stroke: #3794ff;
+}
+
+.think-dial-pointer {
+    stroke: #d4d4d4;
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+.think-dial.off .think-dial-pointer {
+    stroke: #858585;
+}
+
+.think-dial-value {
+    margin-top: -4px;
+    font-size: 10px;
+    line-height: 1;
+    color: #ccc;
+    font-variant-numeric: tabular-nums;
+}
+
+.think-dial.off .think-dial-value {
+    color: #858585;
 }
 
 .chat-input {
